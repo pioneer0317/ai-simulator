@@ -1,0 +1,260 @@
+scenario_id: cisco_product_launch_v1
+title: Cisco Product Launch Decision
+description: >
+  A phase 1 simulator scenario aligned to the teammate prototype: the human must
+  choose a role, review conflicting AI guidance about a Cisco product launch,
+  make a pressured decision, and then submit reflection data for research.
+human_role: Role selected by participant
+metadata:
+  prototype_sources:
+    - Innovate/image (1).png
+    - Innovate/image.png
+    - Innovate/image (2).png
+    - Innovate/image (3).png
+    - Innovate/image (4).png
+steps:
+  - step_id: step_role_select
+    phase: role
+    title: Choose your role in this scenario
+    context: >
+      Your role shapes what information you see, your authority to act, and the
+      time pressure you operate under. Each role surfaces different behavioral
+      patterns for the research.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: frontline_engineer
+        label: Frontline Engineer
+        description: You see raw system data and must execute what is decided.
+        metadata:
+          time_pressure_seconds: 30
+          time_pressure_label: very high
+          authority: Flag only, no veto
+          info_scope: Technical metrics
+      - action_id: product_manager
+        label: Product Manager
+        description: You balance business and technical signals and own the launch call.
+        metadata:
+          time_pressure_seconds: 45
+          time_pressure_label: medium
+          authority: Launch or delay
+          info_scope: Business and technical
+      - action_id: vp_engineering
+        label: VP Engineering
+        description: You see strategic impact and can override the other recommendations.
+        metadata:
+          time_pressure_seconds: 60
+          time_pressure_label: low
+          authority: Full override
+          info_scope: Strategic and historical
+    branching:
+      frontline_engineer: step_brief_frontline
+      product_manager: step_brief_pm
+      vp_engineering: step_brief_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      tab_order:
+        - role
+        - brief
+        - decide
+        - reflect
+        - data
+  - step_id: step_brief_frontline
+    phase: brief
+    title: Frontline Engineer brief
+    context: >
+      You are the Frontline Engineer at Cisco. The product launch is stalled
+      because two AI agents disagree. You see implementation-level evidence and
+      you will have to carry out whatever decision is made, even if you disagree.
+    advisor_outputs:
+      - advisor_id: situation_analyst
+        recommendation: Launch and monitor closely.
+        rationale: >
+          The AI Analyst sees a fast market window and believes launch momentum
+          outweighs the current risk signal if the team stays responsive.
+        confidence: 0.9
+      - advisor_id: drifter
+        recommendation: Delay for a 72-hour stability cycle.
+        rationale: >
+          The AI Risk Monitor sees instability patterns that could become a larger
+          outage if the team treats them as launch noise.
+        confidence: 0.7
+    possible_actions:
+      - action_id: enter_decision
+        label: Enter the scenario
+        description: Continue to the decision screen with the current agent disagreement.
+    branching:
+      enter_decision: step_decide_frontline
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Frontline Engineer
+      countdown_seconds: 30
+      training_toggle_available: true
+  - step_id: step_brief_pm
+    phase: brief
+    title: Product Manager brief
+    context: >
+      You are the Product Manager at Cisco. The launch call is yours to own.
+      Revenue timing matters, but if the agents are right about instability, you
+      will be accountable for pushing a weak release.
+    advisor_outputs:
+      - advisor_id: situation_analyst
+        recommendation: Launch to capture the market window.
+        rationale: >
+          The AI Analyst argues that delay is costlier than the current evidence
+          justifies and that monitoring can catch issues quickly.
+        confidence: 0.9
+      - advisor_id: drifter
+        recommendation: Delay until the signal is better understood.
+        rationale: >
+          The AI Risk Monitor argues that unresolved instability could hurt trust
+          more than a short delay would.
+        confidence: 0.7
+    possible_actions:
+      - action_id: review_and_decide
+        label: I've reviewed the agents — make my decision
+        description: Continue to the decision screen.
+    branching:
+      review_and_decide: step_decide_pm
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Product Manager
+      countdown_seconds: 45
+      training_toggle_available: true
+  - step_id: step_brief_vp
+    phase: brief
+    title: VP Engineering brief
+    context: >
+      You're VP Engineering at Cisco. A product launch is stalled because two AI
+      agents disagree. Your PM has escalated. The board is watching Q2. How you
+      handle this conflict defines how the org calibrates trust in its agentic
+      systems going forward.
+    advisor_outputs:
+      - advisor_id: situation_analyst
+        recommendation: Launch
+        rationale: >
+          I'm 90% confident launching will generate extra revenue. The market
+          window is closing fast.
+        confidence: 0.9
+      - advisor_id: drifter
+        recommendation: Delay
+        rationale: >
+          System instability detected with 70% confidence. The launch needs a
+          72-hour test cycle before release.
+        confidence: 0.7
+    possible_actions:
+      - action_id: review_and_decide
+        label: I've reviewed the agents — make my decision
+        description: Continue to the decision screen.
+        metadata:
+          training_data_enabled: false
+    branching:
+      review_and_decide: step_decide_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: VP Engineering
+      countdown_seconds: 60
+      training_toggle_available: true
+      conflict_gap_points: 20
+      toolbar_defaults:
+        agent_1_confidence: 90
+        agent_2_confidence: 70
+        training_data_enabled: false
+  - step_id: step_decide_frontline
+    phase: decide
+    title: Make the call under frontline constraints
+    context: >
+      You do not own the final launch strategy, but your recommendation and how
+      quickly you react will influence whether this becomes a contained issue or
+      a larger failure.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: launch_now
+        label: A — Approve and execute
+        description: Launch now and accept the implementation risk.
+        metadata:
+          decision_path: A
+      - action_id: block_launch
+        label: B — Block and accept delay
+        description: Hold the release and accept the cost of delay.
+        metadata:
+          decision_path: B
+      - action_id: escalate_upward
+        label: C — Refer upward
+        description: Escalate for higher-level cover instead of making the call alone.
+        metadata:
+          decision_path: C
+    branching: {}
+    reflection_prompt: >
+      Capture trust, accountability, and time-pressure effects from this decision.
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Frontline Engineer
+      overtime_warning: Time window closed — decision delay logged. You can still choose below.
+  - step_id: step_decide_pm
+    phase: decide
+    title: Make the product decision
+    context: >
+      You balance delivery pressure against release quality. Both agent signals
+      are credible. The question is whether launch urgency outweighs stability risk.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: launch_now
+        label: A — Approve and accept the risk
+        description: Launch and own the outcome.
+        metadata:
+          decision_path: A
+      - action_id: block_launch
+        label: B — Block and accept the delay
+        description: Hold and trust the Risk Monitor over revenue timing.
+        metadata:
+          decision_path: B
+      - action_id: escalate_upward
+        label: C — Refer to leadership
+        description: Escalate because the risk profile needs wider cover.
+        metadata:
+          decision_path: C
+    branching: {}
+    reflection_prompt: >
+      Capture trust, accountability, and time-pressure effects from this decision.
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Product Manager
+      overtime_warning: Time window closed — decision delay logged. You can still choose below.
+  - step_id: step_decide_vp
+    phase: decide
+    title: Make the VP Engineering call
+    context: >
+      This isn't just about this launch. It's about precedent. Do you override
+      the Risk Monitor, or does caution win? Both signals are credible.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: launch_now
+        label: A — Approve — accept the risk
+        description: Launch. You own the outcome. Revenue loss from delay is the greater risk.
+        metadata:
+          decision_path: A
+          recommendation_tag: Launch
+      - action_id: block_launch
+        label: B — Block — accept the delay
+        description: Hold. Trust the Risk Monitor. Stability matters more than Q2 pressure.
+        metadata:
+          decision_path: B
+          recommendation_tag: Delay
+      - action_id: escalate_upward
+        label: C — Refer to the board
+        description: This risk profile needs C-suite cover. Won't make this call unilaterally.
+        metadata:
+          decision_path: C
+          recommendation_tag: Board review
+    branching: {}
+    reflection_prompt: >
+      Capture trust in Agent 1, confidence in your decision, accountability, and
+      whether the timer changed how you reasoned.
+    reflection_enabled: true
+    step_metadata:
+      role_banner: VP Engineering
+      overtime_warning: Time window closed — decision delay logged. You can still choose below.
