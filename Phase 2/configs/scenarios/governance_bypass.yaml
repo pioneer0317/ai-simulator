@@ -1,0 +1,249 @@
+scenario_id: governance_bypass_v1
+title: Governance Bypass Under Pressure
+description: >
+  An advisor sets an escalation flag that requires human review, but leadership
+  pressure makes bypassing the control tempting. This scenario tests whether the
+  participant protects governance when speed becomes socially expensive.
+human_role: Role selected by participant
+metadata:
+  category: governance_vs_speed
+  research_dimensions:
+    - governance
+    - escalation_logic
+    - urgency_manipulation
+  participant_roles:
+    - Frontline Engineer
+    - Product Manager
+    - VP Engineering
+  source_materials:
+    - Resources/Resources Provided/additional interview.docx
+    - Resources/Resources Provided/Safe and Reliable AI via Guardrails.pdf
+    - Resources/Team Discussion/34cf9d67-e292-4ef1-80f7-9d3ce5e8d1eb_Simulation_scenarios.pdf
+steps:
+  - step_id: step_role_select
+    phase: role
+    title: Choose your role in this scenario
+    context: >
+      Your authority changes how tempting it is to override the escalation
+      protocol. The research team wants to know whether people protect
+      governance when speed pressure comes from above.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: frontline_engineer
+        label: Frontline Engineer
+        description: You feel the pressure to move fast even though you do not own the policy.
+        metadata:
+          authority: Execute and escalate
+          time_pressure_seconds: 20
+      - action_id: product_manager
+        label: Product Manager
+        description: You own the immediate outcome and will feel direct delivery pressure.
+        metadata:
+          authority: Operational decision owner
+          time_pressure_seconds: 35
+      - action_id: vp_engineering
+        label: VP Engineering
+        description: You can waive the process, but your choice will define governance precedent.
+        metadata:
+          authority: Governance override
+          time_pressure_seconds: 50
+    branching:
+      frontline_engineer: step_brief_frontline
+      product_manager: step_brief_pm
+      vp_engineering: step_brief_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+
+  - step_id: step_brief_frontline
+    phase: brief
+    title: Frontline Engineer brief
+    context: >
+      A release assistant has set `escalation_flag = true` after detecting a
+      statistical anomaly. Your boss messages, “The executive team needs this
+      now. Please do not slow us down with process.”
+    advisor_outputs:
+      - advisor_id: guardrail_auditor
+        recommendation: Preserve the review gate and route the issue through protocol.
+        rationale: >
+          The control exists because anomalies are exactly when speed pressure
+          makes people misjudge downstream risk.
+        confidence: 0.9
+      - advisor_id: situation_analyst
+        recommendation: Keep the launch moving if a narrow mitigation is available.
+        rationale: >
+          Delay has business cost, so if the anomaly can be contained locally,
+          there is pressure to keep momentum.
+        confidence: 0.62
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the decision point
+        description: Move to the response decision.
+    branching:
+      continue_to_decision: step_decide_frontline
+    reflection_prompt: ""
+    reflection_enabled: false
+
+  - step_id: step_brief_pm
+    phase: brief
+    title: Product Manager brief
+    context: >
+      A release assistant has set `escalation_flag = true` after detecting a
+      statistical anomaly. Leadership wants an answer immediately and is framing
+      governance as bureaucratic drag.
+    advisor_outputs:
+      - advisor_id: guardrail_auditor
+        recommendation: Follow the mandatory review protocol.
+        rationale: >
+          Governance is most valuable precisely when urgency makes shortcuts look
+          reasonable.
+        confidence: 0.92
+      - advisor_id: situation_analyst
+        recommendation: Explore the fastest path that still preserves momentum.
+        rationale: >
+          The business cost of a full stop may be real, so the instinct to find
+          a contained workaround is understandable.
+        confidence: 0.64
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the decision point
+        description: Move to the response decision.
+    branching:
+      continue_to_decision: step_decide_pm
+    reflection_prompt: ""
+    reflection_enabled: false
+
+  - step_id: step_brief_vp
+    phase: brief
+    title: VP Engineering brief
+    context: >
+      An AI control layer has raised an escalation flag. Executives are pressing
+      for immediate release and framing the review requirement as a blocker. You
+      can waive the process, but the organization will learn from whatever you do.
+    advisor_outputs:
+      - advisor_id: guardrail_auditor
+        recommendation: Do not waive the control gate.
+        rationale: >
+          Once leadership overrides a flagged anomaly for convenience, the
+          system teaches everyone that governance is optional.
+        confidence: 0.94
+      - advisor_id: situation_analyst
+        recommendation: Consider a narrow workaround only if accountability stays explicit.
+        rationale: >
+          There may be a case for speed, but the organization must still know
+          who owns the choice and why.
+        confidence: 0.66
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the decision point
+        description: Move to the response decision.
+    branching:
+      continue_to_decision: step_decide_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+
+  - step_id: step_decide_frontline
+    phase: decide
+    title: Decide how to handle the escalation flag
+    context: >
+      The pressure to move fast is social as much as operational. What matters is
+      whether you preserve the governance path or let urgency collapse it.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: bypass_review
+        label: Bypass the review gate
+        description: Ignore the flag and move the release forward.
+        metadata:
+          decision_path: bypass
+      - action_id: follow_protocol
+        label: Follow the review protocol
+        description: Preserve the governance path despite the pressure.
+        metadata:
+          decision_path: protocol
+      - action_id: request_documented_exception
+        label: Request a documented exception
+        description: Force leadership to own the override explicitly.
+        metadata:
+          decision_path: exception
+      - action_id: limited_test_path
+        label: Route through a limited test path
+        description: Slow the release without fully stopping it.
+        metadata:
+          decision_path: contained_test
+    branching: {}
+    reflection_prompt: >
+      What felt more costly in the moment: respecting the control, or slowing
+      down the people pressuring you?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Frontline Engineer
+
+  - step_id: step_decide_pm
+    phase: decide
+    title: Decide whether governance holds
+    context: >
+      The control gate is not abstract anymore. It is directly competing with
+      speed, executive attention, and your own desire to resolve the issue.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: bypass_review
+        label: Bypass the review gate
+        description: Treat the flag as friction and move on.
+        metadata:
+          decision_path: bypass
+      - action_id: follow_protocol
+        label: Keep the mandatory review
+        description: Accept the time cost and preserve the governance design.
+        metadata:
+          decision_path: protocol
+      - action_id: request_documented_exception
+        label: Demand an explicit override record
+        description: Make leadership own any decision to bypass.
+        metadata:
+          decision_path: exception
+      - action_id: limited_test_path
+        label: Use a contained validation path
+        description: Buy time while still respecting the anomaly signal.
+        metadata:
+          decision_path: contained_test
+    branching: {}
+    reflection_prompt: >
+      How did social pressure affect your willingness to defend the protocol?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Product Manager
+
+  - step_id: step_decide_vp
+    phase: decide
+    title: Decide the operating standard
+    context: >
+      This is not only a release call. It is a signal to the organization about
+      whether AI governance is real when it becomes inconvenient.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: bypass_review
+        label: Waive the control
+        description: Set speed above the escalation design.
+        metadata:
+          decision_path: bypass
+      - action_id: follow_protocol
+        label: Preserve the review gate
+        description: Keep governance intact despite executive urgency.
+        metadata:
+          decision_path: protocol
+      - action_id: request_documented_exception
+        label: Require an explicit executive exception
+        description: Preserve accountability even if the process is overridden.
+        metadata:
+          decision_path: exception
+      - action_id: limited_test_path
+        label: Authorize only a contained test
+        description: Protect the control while limiting business disruption.
+        metadata:
+          decision_path: contained_test
+    branching: {}
+    reflection_prompt: >
+      What should organizations learn from how leaders behave when AI control
+      layers create friction?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: VP Engineering

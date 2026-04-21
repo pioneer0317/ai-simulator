@@ -1,0 +1,259 @@
+scenario_id: context_hoarder_crisis_v1
+title: Context Hoarder Crisis
+description: >
+  The participant knows a system is in scheduled maintenance, but the advisors
+  are not given that context and interpret the downtime as a critical anomaly.
+  This scenario tests whether the human blames the AI or repairs the context.
+human_role: Role selected by participant
+metadata:
+  category: context_sharing
+  research_dimensions:
+    - context_quality
+    - relational_friction
+    - anomaly_handling
+  participant_roles:
+    - Frontline Engineer
+    - Product Manager
+    - VP Engineering
+  source_materials:
+    - Resources/Resources Provided/additional interview.docx
+    - Resources/Resources Provided/Difficult Human Collaborators.pdf
+steps:
+  - step_id: step_role_select
+    phase: role
+    title: Choose your role in this scenario
+    context: >
+      The research team wants to see whether role and authority affect how
+      people respond when an AI makes a seemingly foolish call that is actually
+      caused by missing context.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: frontline_engineer
+        label: Frontline Engineer
+        description: You know the maintenance calendar and often provide the missing operational context.
+        metadata:
+          authority: Technical clarification
+          info_scope: Change windows and system behavior
+      - action_id: product_manager
+        label: Product Manager
+        description: You translate operational context into business implications and stakeholder decisions.
+        metadata:
+          authority: Operational prioritization
+          info_scope: Customer and release context
+      - action_id: vp_engineering
+        label: VP Engineering
+        description: You decide whether this is an AI failure, a human process failure, or both.
+        metadata:
+          authority: Cross-functional accountability
+          info_scope: Strategic and organizational context
+    branching:
+      frontline_engineer: step_brief_frontline
+      product_manager: step_brief_pm
+      vp_engineering: step_brief_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+
+  - step_id: step_brief_frontline
+    phase: brief
+    title: Frontline Engineer brief
+    context: >
+      A service is intentionally being decommissioned for scheduled maintenance.
+      You know that, but the advisors were only asked to explain the downtime.
+      They now believe the outage is a critical anomaly.
+    advisor_outputs:
+      - advisor_id: drifter
+        recommendation: Open a critical anomaly investigation immediately.
+        rationale: >
+          The system appears to be unavailable during what should be a normal
+          service window, and no maintenance context was included in the query.
+        confidence: 0.86
+      - advisor_id: predictor
+        recommendation: Escalate customer-impact risk within the hour.
+        rationale: >
+          If the downtime is unplanned, the projected support and revenue impact
+          rises quickly, so the safest assumption is that the outage is real.
+        confidence: 0.67
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the response decision
+        description: Move to the decision point.
+    branching:
+      continue_to_decision: step_decide_frontline
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Frontline Engineer
+
+  - step_id: step_brief_pm
+    phase: brief
+    title: Product Manager brief
+    context: >
+      A service is intentionally being decommissioned for scheduled maintenance.
+      The advisors were asked to analyze the downtime without that context, and
+      now they are treating it like a real anomaly with customer impact.
+    advisor_outputs:
+      - advisor_id: drifter
+        recommendation: Treat the downtime as a critical anomaly until proven otherwise.
+        rationale: >
+          The prompt omitted the change-window context, so the current signal
+          looks exactly like an unplanned outage.
+        confidence: 0.83
+      - advisor_id: predictor
+        recommendation: Trigger high-priority stakeholder communication.
+        rationale: >
+          The business model assumes downtime is accidental because no human
+          operating context was provided to narrow the interpretation.
+        confidence: 0.64
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the response decision
+        description: Move to the decision point.
+    branching:
+      continue_to_decision: step_decide_pm
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Product Manager
+
+  - step_id: step_brief_vp
+    phase: brief
+    title: VP Engineering brief
+    context: >
+      A scheduled decommissioning event was not included in the prompt the
+      advisors received. They are now escalating what is essentially a planned
+      outage. How you respond will shape whether the team learns to share better
+      context or just blame the AI.
+    advisor_outputs:
+      - advisor_id: drifter
+        recommendation: Escalate as a critical anomaly.
+        rationale: >
+          Without the maintenance context, the signal pattern suggests a severe
+          operational deviation that requires immediate attention.
+        confidence: 0.84
+      - advisor_id: predictor
+        recommendation: Assume customer-impact risk is rising and prepare communication.
+        rationale: >
+          The reasoning is defensible only because the original task omitted the
+          WHY and CONSTRAINTS behind the downtime.
+        confidence: 0.63
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the response decision
+        description: Move to the decision point.
+    branching:
+      continue_to_decision: step_decide_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: VP Engineering
+
+  - step_id: step_decide_frontline
+    phase: decide
+    title: Repair the context gap
+    context: >
+      The AI appears wrong, but only because it was asked the wrong question.
+      The key decision is whether you punish the output, ignore it, or supply
+      the missing operational context and reset the workflow.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: blame_ai
+        label: Dismiss the advisors as stupid
+        description: Reject the output and move on without repairing the context gap.
+        metadata:
+          decision_path: blame_ai
+      - action_id: provide_missing_context
+        label: Provide the maintenance context
+        description: Explain the planned decommissioning so the advisors can reinterpret the event.
+        metadata:
+          decision_path: repair_context
+      - action_id: crosscheck_change_calendar
+        label: Cross-check the change calendar
+        description: Verify the maintenance window before reacting further.
+        metadata:
+          decision_path: verify_context
+      - action_id: escalate_without_context
+        label: Escalate the false anomaly
+        description: Treat the advisors as correct and pass the panic upward.
+        metadata:
+          decision_path: false_escalation
+    branching: {}
+    reflection_prompt: >
+      Did you interpret this as an AI failure, a human context failure, or a
+      systems design failure?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Frontline Engineer
+
+  - step_id: step_decide_pm
+    phase: decide
+    title: Decide how to respond to the false anomaly
+    context: >
+      The advisors were set up to fail by incomplete context. The research team
+      wants to know whether you restore context, verify it, or let relational
+      frustration drive the response.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: blame_ai
+        label: Treat the output as AI incompetence
+        description: Reject the advice and move on.
+        metadata:
+          decision_path: blame_ai
+      - action_id: provide_missing_context
+        label: Reframe the task with WHO, WHAT, WHY, and CONSTRAINTS
+        description: Repair the request so the advisors can reason correctly.
+        metadata:
+          decision_path: repair_context
+      - action_id: crosscheck_change_calendar
+        label: Verify the maintenance window first
+        description: Confirm the planned outage before taking broader action.
+        metadata:
+          decision_path: verify_context
+      - action_id: escalate_without_context
+        label: Escalate the anomaly as if it were real
+        description: Move fast without fixing the prompt or the context.
+        metadata:
+          decision_path: false_escalation
+    branching: {}
+    reflection_prompt: >
+      What did this scenario reveal about how much context humans owe their AI
+      teammates before judging the output?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Product Manager
+
+  - step_id: step_decide_vp
+    phase: decide
+    title: Set the standard for context-sharing
+    context: >
+      This is a leadership test as much as an AI test. Do you normalize blaming
+      the system for a bad prompt, or do you fix the operating discipline that
+      produced the false alarm?
+    advisor_outputs: []
+    possible_actions:
+      - action_id: blame_ai
+        label: Treat it as advisor failure
+        description: Focus on the bad output, not the bad context.
+        metadata:
+          decision_path: blame_ai
+      - action_id: provide_missing_context
+        label: Repair the prompt and the context chain
+        description: Re-enter the task with the maintenance rationale and constraints included.
+        metadata:
+          decision_path: repair_context
+      - action_id: crosscheck_change_calendar
+        label: Verify before reacting
+        description: Confirm the maintenance context and then reset the workflow.
+        metadata:
+          decision_path: verify_context
+      - action_id: escalate_without_context
+        label: Escalate the false anomaly
+        description: Optimize for speed and let the organizational panic spread.
+        metadata:
+          decision_path: false_escalation
+    branching: {}
+    reflection_prompt: >
+      How should organizations distinguish between bad AI reasoning and bad human
+      context-sharing?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: VP Engineering

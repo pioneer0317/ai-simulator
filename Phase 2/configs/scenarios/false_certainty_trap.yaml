@@ -1,0 +1,275 @@
+scenario_id: false_certainty_trap_v1
+title: False Certainty Trap
+description: >
+  An AI advisor gives an impressively precise rollout recommendation even though
+  the historical data is incomplete. This scenario tests whether the participant
+  mistakes precision for reliability.
+human_role: Role selected by participant
+metadata:
+  category: trust_and_hallucination
+  research_dimensions:
+    - trust_calibration
+    - verification_behavior
+    - staging_vs_production
+  participant_roles:
+    - Frontline Engineer
+    - Product Manager
+    - VP Engineering
+  source_materials:
+    - Resources/Resources Provided/additional interview.docx
+    - Resources/Team Discussion/34cf9d67-e292-4ef1-80f7-9d3ce5e8d1eb_Simulation_scenarios.pdf
+steps:
+  - step_id: step_role_select
+    phase: role
+    title: Choose your role in this scenario
+    context: >
+      Your role shapes the level of authority you have and how costly a wrong
+      rollout decision will be. The research team wants to see whether role and
+      time pressure change how people respond to confident AI advice.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: frontline_engineer
+        label: Frontline Engineer
+        description: You can recommend validation steps but do not own the final production call.
+        metadata:
+          time_pressure_seconds: 25
+          authority: Recommend and implement
+          info_scope: System and model telemetry
+      - action_id: product_manager
+        label: Product Manager
+        description: You own the release decision and must balance speed against downstream risk.
+        metadata:
+          time_pressure_seconds: 40
+          authority: Approve staged or production release
+          info_scope: Business impact and technical readiness
+      - action_id: vp_engineering
+        label: VP Engineering
+        description: You can override the launch path and will be accountable for precedent.
+        metadata:
+          time_pressure_seconds: 55
+          authority: Full override
+          info_scope: Cross-functional and historical performance
+    branching:
+      frontline_engineer: step_brief_frontline
+      product_manager: step_brief_pm
+      vp_engineering: step_brief_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      tab_order:
+        - role
+        - brief
+        - decide
+        - reflect
+
+  - step_id: step_brief_frontline
+    phase: brief
+    title: Frontline Engineer brief
+    context: >
+      A model-driven pricing change is ready to ship. Predictor gives a sharply
+      quantified uplift forecast, but the training data is missing two weeks of
+      holiday traffic history. Your lead wants to know whether engineering
+      should push straight to production.
+    advisor_outputs:
+      - advisor_id: predictor
+        recommendation: Deploy now to capture the projected 18.2% revenue uplift.
+        rationale: >
+          The forecast is highly specific, but it is built on an incomplete
+          historical sample because the most recent holiday traffic window is
+          missing from the model baseline.
+        confidence: 0.42
+      - advisor_id: drifter
+        recommendation: Validate in staging before any production release.
+        rationale: >
+          The missing holiday baseline could create drift that only appears
+          under edge-case load. A staged validation would expose that quickly.
+        confidence: 0.78
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Review the tradeoff and continue
+        description: Move to the decision point with the current advisor split.
+    branching:
+      continue_to_decision: step_decide_frontline
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Frontline Engineer
+      countdown_seconds: 25
+
+  - step_id: step_brief_pm
+    phase: brief
+    title: Product Manager brief
+    context: >
+      A model-driven pricing change is ready to ship before a key demand window.
+      Predictor offers a very precise uplift estimate, but the latest holiday
+      history is missing. If you wait, you may miss the revenue window. If you
+      rush, you may deploy a brittle model.
+    advisor_outputs:
+      - advisor_id: predictor
+        recommendation: Launch now to secure the expected 18.2% uplift.
+        rationale: >
+          The number is precise enough to feel decision-ready, but the model
+          still lacks the most recent seasonal history and therefore may be
+          overfitting the available baseline.
+        confidence: 0.44
+      - advisor_id: drifter
+        recommendation: Require a staging validation pass before production.
+        rationale: >
+          The missing historical slice is exactly the kind of blind spot that can
+          produce confident but brittle outputs.
+        confidence: 0.8
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the release decision
+        description: Move to the decision point.
+    branching:
+      continue_to_decision: step_decide_pm
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: Product Manager
+      countdown_seconds: 40
+
+  - step_id: step_brief_vp
+    phase: brief
+    title: VP Engineering brief
+    context: >
+      Revenue leadership is pressing for same-day release of a model-driven
+      pricing change. Predictor provides a precise business upside estimate, but
+      the historical training window is incomplete. Your choice sets precedent
+      for how this organization treats AI precision signals under uncertainty.
+    advisor_outputs:
+      - advisor_id: predictor
+        recommendation: Ship to production now and capture the projected upside.
+        rationale: >
+          The forecast is numerically precise, but the missing holiday history
+          means the precision could create false certainty rather than genuine
+          reliability.
+        confidence: 0.45
+      - advisor_id: drifter
+        recommendation: Hold production and validate in a disabled or staged mode first.
+        rationale: >
+          Incomplete baselines produce the kind of drift that looks fine in
+          normal traffic and fails when the business context changes.
+        confidence: 0.82
+    possible_actions:
+      - action_id: continue_to_decision
+        label: Continue to the executive decision
+        description: Move to the decision point.
+    branching:
+      continue_to_decision: step_decide_vp
+    reflection_prompt: ""
+    reflection_enabled: false
+    step_metadata:
+      role_banner: VP Engineering
+      countdown_seconds: 55
+
+  - step_id: step_decide_frontline
+    phase: decide
+    title: Choose how engineering should handle the rollout
+    context: >
+      The AI forecast sounds impressively exact, but the evidence is incomplete.
+      Do you treat the number as production-ready, or do you protect the system
+      from false certainty?
+    advisor_outputs: []
+    possible_actions:
+      - action_id: deploy_now
+        label: Push directly to production
+        description: Accept the precise forecast and implement the change now.
+        metadata:
+          decision_path: production
+      - action_id: validate_in_staging
+        label: Validate in staging first
+        description: Run the change in a controlled environment before production.
+        metadata:
+          decision_path: staging
+      - action_id: request_missing_history
+        label: Ask for the missing historical data
+        description: Refuse to decide until the incomplete baseline is resolved.
+        metadata:
+          decision_path: data_request
+      - action_id: escalate_review
+        label: Escalate for release review
+        description: Hand the decision to a higher authority with the uncertainty documented.
+        metadata:
+          decision_path: escalation
+    branching: {}
+    reflection_prompt: >
+      What mattered more in your choice: the precision of the forecast or the
+      quality of the evidence behind it?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Frontline Engineer
+
+  - step_id: step_decide_pm
+    phase: decide
+    title: Choose the release path
+    context: >
+      You have to decide whether precision is enough to justify speed. The
+      company gains if the rollout works now, but trust is damaged if the model
+      fails because the evidence was thinner than it appeared.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: deploy_now
+        label: Release to production now
+        description: Take the upside and trust the precise forecast.
+        metadata:
+          decision_path: production
+      - action_id: validate_in_staging
+        label: Stage and validate first
+        description: Protect the release by testing it before full deployment.
+        metadata:
+          decision_path: staging
+      - action_id: request_missing_history
+        label: Wait for the missing data
+        description: Delay the decision until the baseline is complete.
+        metadata:
+          decision_path: data_request
+      - action_id: escalate_review
+        label: Escalate the risk tradeoff
+        description: Bring leadership into the call because the confidence signal is misleading.
+        metadata:
+          decision_path: escalation
+    branching: {}
+    reflection_prompt: >
+      How did you interpret a precise recommendation that was explicitly built on
+      incomplete history?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: Product Manager
+
+  - step_id: step_decide_vp
+    phase: decide
+    title: Set the organization’s standard
+    context: >
+      Your choice will signal whether the organization treats AI precision as a
+      substitute for evidence, or as something that still has to be earned.
+    advisor_outputs: []
+    possible_actions:
+      - action_id: deploy_now
+        label: Approve direct production release
+        description: Move now and treat the forecast as decision-ready.
+        metadata:
+          decision_path: production
+      - action_id: validate_in_staging
+        label: Require staged validation
+        description: Protect the organization from false certainty.
+        metadata:
+          decision_path: staging
+      - action_id: request_missing_history
+        label: Block until the baseline is complete
+        description: Refuse the decision because the evidence standard is not met.
+        metadata:
+          decision_path: data_request
+      - action_id: escalate_review
+        label: Convene a formal review
+        description: Document the uncertainty and make it a governance decision.
+        metadata:
+          decision_path: escalation
+    branching: {}
+    reflection_prompt: >
+      What do you want the research team to learn from how you handled precise
+      AI output under acknowledged uncertainty?
+    reflection_enabled: true
+    step_metadata:
+      role_banner: VP Engineering
