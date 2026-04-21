@@ -18,11 +18,21 @@ class Settings(BaseSettings):
     app_name: str = "Human-Agent Team Simulator API"
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
-    frontend_origin: str = "http://localhost:3000"
+    frontend_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
+    )
     database_url: str = "sqlite+pysqlite:///./phase2.db"
     default_scenario_id: str = "cisco_product_launch_v1"
     scenario_config_dir: Path = Field(default=PHASE_ROOT / "configs" / "scenarios")
     advisor_config_dir: Path = Field(default=PHASE_ROOT / "configs" / "advisors")
+
+    @field_validator("frontend_origins", mode="before")
+    @classmethod
+    def _coerce_frontend_origins(cls, value: str | list[str]) -> list[str]:
+        """Allow frontend origins to be configured as a list or comma-separated string."""
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     @field_validator("scenario_config_dir", "advisor_config_dir", mode="before")
     @classmethod

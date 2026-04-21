@@ -6,11 +6,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api.routes.health import router as health_router
+from app.api.routes.prototype import router as prototype_router
 from app.api.routes.simulator import router as simulator_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import create_session_factory
 from app.services.advisors import AdvisorRegistry
+from app.services.prototype_sessions import PrototypeSessionService
 from app.services.scenarios.engine import ScenarioEngine
 from app.services.scenarios.loader import ScenarioLoader
 from app.services.simulator import SimulatorService
@@ -30,7 +32,7 @@ def create_app(settings=None) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_origin],
+        allow_origins=settings.frontend_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -52,12 +54,15 @@ def create_app(settings=None) -> FastAPI:
         advisor_registry=AdvisorRegistry(settings.advisor_config_dir),
         default_scenario_id=settings.default_scenario_id,
     )
+    prototype_session_service = PrototypeSessionService(session_factory=session_factory)
     simulator_service.create_tables()
 
     app.state.settings = settings
     app.state.simulator_service = simulator_service
+    app.state.prototype_session_service = prototype_session_service
 
     app.include_router(health_router, prefix=settings.api_v1_prefix)
+    app.include_router(prototype_router, prefix=settings.api_v1_prefix)
     app.include_router(simulator_router, prefix=settings.api_v1_prefix)
     return app
 

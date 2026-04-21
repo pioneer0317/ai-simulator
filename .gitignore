@@ -5,5 +5,7 @@ __pycache__/
 .venv/
 node_modules/
 .next/
+dist/
 *.egg-info/
 *.db
+.env
