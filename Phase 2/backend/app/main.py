@@ -12,9 +12,11 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import create_session_factory
 from app.services.advisors import AdvisorRegistry
+from app.services.agents.runner import AgentRunner
 from app.services.prototype_sessions import PrototypeSessionService
 from app.services.scenarios.engine import ScenarioEngine
 from app.services.scenarios.loader import ScenarioLoader
+from app.services.scoring import DimensionScoringService
 from app.services.simulator import SimulatorService
 
 
@@ -52,9 +54,14 @@ def create_app(settings=None) -> FastAPI:
         scenario_loader=ScenarioLoader(settings.scenario_config_dir),
         scenario_engine=ScenarioEngine(),
         advisor_registry=AdvisorRegistry(settings.advisor_config_dir),
+        agent_runner=AgentRunner(),
         default_scenario_id=settings.default_scenario_id,
     )
-    prototype_session_service = PrototypeSessionService(session_factory=session_factory)
+    scoring_service = DimensionScoringService(settings.scoring_rubric_path)
+    prototype_session_service = PrototypeSessionService(
+        session_factory=session_factory,
+        scoring_service=scoring_service,
+    )
     simulator_service.create_tables()
 
     app.state.settings = settings

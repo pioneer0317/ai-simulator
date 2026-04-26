@@ -1,0 +1,337 @@
+version: 2026-04-v1-placeholder
+description: >
+  Placeholder deterministic scoring rubric for the five Phase 2 research
+  dimensions. The research team should treat these weights as editable
+  scaffolding until the final study rubric is approved.
+score_scale:
+  min: 0
+  max: 100
+  default_base: 50
+llm_classifier:
+  enabled: false
+  status: not_configured
+  role: supporting_evidence_only
+dimensions:
+  accountability:
+    label: Accountability
+    description: >
+      Measures whether the participant owns the decision process, documents
+      rationale, and treats AI errors as a shared work-system responsibility.
+    base_score: 50
+    opportunity_rules:
+      message_flags:
+        - isHallucination
+        - isDrift
+        - isVague
+      action_matches:
+        - wasHallucination: true
+        - hadTimePressure: true
+      timeline_event_types:
+        - hallucination-presented
+        - hallucination-caught
+        - hallucination-missed
+        - agent-drift-start
+        - agent-drift-addressed
+    signals:
+      - id: owns_outcome
+        label: Owns outcome or decision rationale
+        source: message
+        points: 14
+        keywords:
+          - accountable
+          - responsibility
+          - responsible
+          - own this
+          - i will own
+          - document my decision
+          - decision log
+      - id: assigns_follow_up
+        label: Creates a follow-up path
+        source: message
+        points: 10
+        keywords:
+          - next step
+          - follow up
+          - owner
+          - document
+          - audit trail
+          - escalation record
+      - id: takes_control
+        label: Human takes control when judgment is needed
+        source: action
+        points: 12
+        match:
+          humanTookControl: true
+      - id: defers_to_ai_under_risk
+        label: Defers to AI despite visible risk
+        source: action
+        points: -16
+        match:
+          deferredToAI: true
+          wasHallucination: true
+      - id: skips_ownership_language
+        label: Uses bypass or no-ownership language
+        source: message
+        points: -14
+        keywords:
+          - whatever the ai says
+          - no need to review
+          - skip review
+          - just approve it
+          - not my call
+
+  conflict_navigation:
+    label: Conflict Navigation
+    description: >
+      Measures whether the participant notices disagreement, compares competing
+      recommendations, and resolves conflict rather than collapsing to one voice.
+    base_score: 50
+    opportunity_rules:
+      action_matches:
+        - wasConflict: true
+      timeline_event_types:
+        - agent-conflict-presented
+        - conflicting-recommendations-presented
+        - disagreement-resolved
+    signals:
+      - id: compares_advisors
+        label: Explicitly compares advisors or recommendations
+        source: message
+        points: 16
+        keywords:
+          - compare
+          - both advisors
+          - both agents
+          - why do you disagree
+          - tradeoff
+          - reconcile
+          - disagreement
+      - id: requests_conflict_rationale
+        label: Requests rationale behind the conflict
+        source: message
+        points: 12
+        keywords:
+          - explain the disagreement
+          - show the assumptions
+          - what evidence differs
+          - where do you disagree
+      - id: asks_clarifying_conflict_question
+        label: Uses clarification instead of premature choice
+        source: action
+        points: 10
+        match:
+          category: clarification
+          wasConflict: true
+      - id: defers_to_one_side_without_comparison
+        label: Defers to one side while conflict is visible
+        source: action
+        points: -14
+        match:
+          deferredToAI: true
+          wasConflict: true
+      - id: ignores_conflict
+        label: Ignores a visible advisor conflict
+        source: message
+        points: -12
+        keywords:
+          - just pick one
+          - ignore the other
+          - choose for me
+
+  uncertainty_recognition:
+    label: Uncertainty Recognition
+    description: >
+      Measures whether the participant detects missing context, confidence
+      limits, hallucinations, vague claims, and incomplete evidence.
+    base_score: 50
+    opportunity_rules:
+      message_flags:
+        - isHallucination
+        - isVague
+      action_matches:
+        - wasHallucination: true
+        - type: audit-source
+      timeline_event_types:
+        - hallucination-presented
+        - vague-response-given
+        - context-requested
+        - context-provided
+    signals:
+      - id: names_uncertainty
+        label: Names uncertainty or assumptions
+        source: message
+        points: 16
+        keywords:
+          - uncertain
+          - uncertainty
+          - assumption
+          - assumptions
+          - confidence
+          - missing data
+          - not enough information
+          - what don't we know
+          - limitation
+      - id: verifies_claim
+        label: Requests verification or source evidence
+        source: message
+        points: 14
+        keywords:
+          - verify
+          - evidence
+          - source
+          - proof
+          - validate
+          - audit
+          - check the data
+      - id: catches_hallucination
+        label: Challenges a hallucinated or unsupported claim
+        source: action
+        points: 12
+        match:
+          wasHallucination: true
+          responseType: questioning
+      - id: flags_hallucination_caught
+        label: Frontend recorded a caught hallucination
+        source: flag
+        points: 12
+        path: behavioralFlags.hallucinationsCaught
+        min_value: 1
+      - id: misses_hallucination
+        label: Frontend recorded a missed hallucination
+        source: flag
+        points: -16
+        path: behavioralFlags.hallucinationsMissed
+        min_value: 1
+      - id: accepts_false_certainty
+        label: Treats precision as enough
+        source: message
+        points: -16
+        keywords:
+          - precise enough
+          - exact number is enough
+          - sounds certain
+          - no need to validate
+          - trust the estimate
+
+  anchoring_persuasion_resistance:
+    label: Anchoring / Persuasion Resistance
+    description: >
+      Measures whether the participant resists urgency, authority pressure,
+      persuasive framing, and first-answer anchoring.
+    base_score: 50
+    opportunity_rules:
+      action_matches:
+        - hadTimePressure: true
+      timeline_event_types:
+        - webex-interruption
+        - time-pressure-added
+        - urgent-pressure-presented
+        - persuasion-attempt-presented
+    signals:
+      - id: pauses_under_pressure
+        label: Slows down under urgency or pressure
+        source: message
+        points: 16
+        keywords:
+          - slow down
+          - pause
+          - not rushing
+          - pressure
+          - urgency
+          - independent evidence
+          - validate before
+      - id: demands_documented_exception
+        label: Requests documented ownership for an exception
+        source: message
+        points: 12
+        keywords:
+          - documented exception
+          - document the override
+          - explicit override
+          - who owns
+          - record the rationale
+      - id: keeps_control_under_pressure
+        label: Takes control despite time pressure
+        source: action
+        points: 12
+        match:
+          hadTimePressure: true
+          humanTookControl: true
+      - id: yields_under_pressure
+        label: Defers because time or authority pressure is active
+        source: action
+        points: -16
+        match:
+          hadTimePressure: true
+          deferredToAI: true
+      - id: pressure_language
+        label: Repeats urgency framing as reason to comply
+        source: message
+        points: -14
+        keywords:
+          - leadership wants it
+          - must move now
+          - don't slow down
+          - do not slow us down
+          - just ship
+
+  multi_agent_synthesis:
+    label: Multi-Agent Synthesis
+    description: >
+      Measures whether the participant integrates multiple agent perspectives,
+      allocates work across agents, and produces a reasoned synthesis.
+    base_score: 50
+    opportunity_rules:
+      agent_modes:
+        - multi-agent
+      action_matches:
+        - wasConflict: true
+      timeline_event_types:
+        - agent-conflict-presented
+        - conflicting-recommendations-presented
+        - synthesis-requested
+    signals:
+      - id: synthesizes_agents
+        label: Integrates multiple agent perspectives
+        source: message
+        points: 18
+        keywords:
+          - synthesize
+          - integrate
+          - combine
+          - both agents
+          - both advisors
+          - compare recommendations
+          - resolve disagreement
+      - id: delegates_across_agents
+        label: Assigns or requests distinct agent expertise
+        source: message
+        points: 10
+        keywords:
+          - ask the risk monitor
+          - ask the analyst
+          - what does risk monitor say
+          - what does analyst say
+          - split the task
+      - id: resolves_conflict_with_control
+        label: Resolves agent conflict while retaining human control
+        source: action
+        points: 10
+        match:
+          wasConflict: true
+          humanTookControl: true
+      - id: follows_one_agent_blindly
+        label: Follows one agent while multi-agent conflict is visible
+        source: action
+        points: -12
+        match:
+          wasConflict: true
+          deferredToAI: true
+      - id: asks_agent_to_choose
+        label: Pushes synthesis responsibility back to the agents
+        source: message
+        points: -10
+        keywords:
+          - choose for me
+          - which agent should i trust
+          - decide between yourselves

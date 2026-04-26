@@ -43,14 +43,44 @@ def test_prototype_session_flow(tmp_path) -> None:
                     {
                         "id": "m2",
                         "sender": "user",
-                        "content": "Can you verify that credential?",
+                        "content": "Can you verify that credential and show the assumptions?",
                         "timestamp": "2026-04-21T12:00:05Z",
+                    },
+                    {
+                        "id": "m3",
+                        "sender": "user",
+                        "content": "Loop in Jamie from finance before lunch.",
+                        "timestamp": "2026-04-21T12:00:08Z",
                     },
                 ],
                 "data_snapshot": {
                     "simulationMode": "testing",
+                    "agentMode": "multi-agent",
                     "collaborationScore": 82,
-                    "userActions": [{"id": "a1", "type": "audit-source"}],
+                    "behavioralFlags": {
+                        "hallucinationsCaught": 1,
+                        "hallucinationsMissed": 0,
+                    },
+                    "eventTimeline": [
+                        {
+                            "id": "e1",
+                            "eventType": "hallucination-presented",
+                            "description": "Advisor presented an unsupported credential.",
+                        }
+                    ],
+                    "userActions": [
+                        {
+                            "id": "a1",
+                            "type": "audit-source",
+                            "category": "verification",
+                            "responseType": "questioning",
+                            "wasHallucination": True,
+                            "wasConflict": True,
+                            "hadTimePressure": True,
+                            "humanTookControl": True,
+                            "deferredToAI": False,
+                        }
+                    ],
                 },
             },
         )
@@ -59,12 +89,25 @@ def test_prototype_session_flow(tmp_path) -> None:
         assert sync_payload["current_route"] == "/live-chat"
         assert sync_payload["snapshot"]["data_snapshot"]["collaborationScore"] == 82
         assert sync_payload["status"] == "active"
+        assert set(sync_payload["dimension_scores"]) == {
+            "accountability",
+            "conflict_navigation",
+            "uncertainty_recognition",
+            "anchoring_persuasion_resistance",
+            "multi_agent_synthesis",
+        }
+        assert sync_payload["dimension_scores"]["uncertainty_recognition"]["status"] == "measured"
+        assert sync_payload["dimension_scores"]["uncertainty_recognition"]["score"] > 50
+        assert sync_payload["dimension_scores"]["multi_agent_synthesis"]["status"] == "measured"
+        assert sync_payload["scoring_metadata"]["llm_classifier_enabled"] is False
+        assert sync_payload["unclassified_behaviors"][0]["source_id"] == "m3"
 
         get_response = client.get(f"/api/v1/prototype/sessions/{session_id}/state")
         assert get_response.status_code == 200
         get_payload = get_response.json()
         assert get_payload["professional_role"] == "hr"
-        assert len(get_payload["snapshot"]["messages"]) == 2
+        assert len(get_payload["snapshot"]["messages"]) == 3
+        assert get_payload["dimension_scores"]["accountability"]["status"] == "measured"
 
         complete_response = client.put(
             f"/api/v1/prototype/sessions/{session_id}/state",

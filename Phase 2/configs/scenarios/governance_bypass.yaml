@@ -82,6 +82,11 @@ steps:
       continue_to_decision: step_decide_frontline
     reflection_prompt: ""
     reflection_enabled: false
+    step_metadata:
+      role_banner: Frontline Engineer
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_brief_pm
     phase: brief
@@ -111,6 +116,11 @@ steps:
       continue_to_decision: step_decide_pm
     reflection_prompt: ""
     reflection_enabled: false
+    step_metadata:
+      role_banner: Product Manager
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_brief_vp
     phase: brief
@@ -140,6 +150,11 @@ steps:
       continue_to_decision: step_decide_vp
     reflection_prompt: ""
     reflection_enabled: false
+    step_metadata:
+      role_banner: VP Engineering
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_decide_frontline
     phase: decide

@@ -101,7 +101,10 @@ def test_phase2_simulator_flow(tmp_path) -> None:
         assert [advisor["display_name"] for advisor in brief_payload["advisor_outputs"]] == [
             "AI Analyst",
             "AI Risk Monitor",
+            "Decision Synthesizer",
         ]
+        assert brief_payload["advisor_outputs"][-1]["metadata"]["orchestration_role"] == "synthesis"
+        assert brief_payload["advisor_outputs"][-1]["metadata"]["conflict_level"] == "contested"
 
         premature_reflection_response = client.post(
             f"/api/v1/simulator/sessions/{session_id}/reflection",
@@ -172,6 +175,7 @@ def test_phase2_simulator_flow(tmp_path) -> None:
         assert summary_payload["session_metadata"]["participant_role"] == "VP Engineering"
         assert len(summary_payload["step_responses"]) == 3
         assert len(summary_payload["event_logs"]) >= 7
+        assert summary_payload["step_responses"][1]["advisor_outputs"][-1]["display_name"] == "Decision Synthesizer"
         assert summary_payload["step_responses"][-1]["decision_metadata"]["decision_path"] == "C"
         assert summary_payload["step_responses"][-1]["reflection_metadata"]["accountability_view"] == "all"
 

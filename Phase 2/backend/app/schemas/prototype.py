@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.scoring import DimensionScore, ScoringMetadata, UnclassifiedBehavior
+
 
 class PrototypeSessionCreateRequest(BaseModel):
     """Create a backend session for the Figma-aligned prototype role/chat flow."""
@@ -63,3 +65,6 @@ class PrototypeSessionStateResponse(BaseModel):
     synced_at: datetime | None = None
     completed_at: datetime | None = None
     snapshot: dict[str, Any] = Field(default_factory=dict)
+    dimension_scores: dict[str, DimensionScore] = Field(default_factory=dict)
+    unclassified_behaviors: list[UnclassifiedBehavior] = Field(default_factory=list)
+    scoring_metadata: ScoringMetadata | None = None

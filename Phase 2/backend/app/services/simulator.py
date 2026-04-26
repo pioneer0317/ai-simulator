@@ -31,6 +31,8 @@ from app.schemas.sessions import (
     SubmitReflectionResponse,
 )
 from app.services.advisors import AdvisorRegistry
+from app.services.agents.runner import AgentRunner
+from app.services.agents.workflow import MultiAgentWorkflow
 from app.services.scenarios.engine import ScenarioEngine
 from app.services.scenarios.loader import ScenarioLoader
 
@@ -70,6 +72,7 @@ class SimulatorService:
         scenario_loader: ScenarioLoader,
         scenario_engine: ScenarioEngine,
         advisor_registry: AdvisorRegistry,
+        agent_runner: AgentRunner,
         default_scenario_id: str,
     ) -> None:
         self._engine = engine
@@ -77,6 +80,10 @@ class SimulatorService:
         self._scenario_loader = scenario_loader
         self._scenario_engine = scenario_engine
         self._advisor_registry = advisor_registry
+        self._agent_workflow = MultiAgentWorkflow(
+            runner=agent_runner,
+            advisor_registry=advisor_registry,
+        )
         self._default_scenario_id = default_scenario_id
 
     def create_tables(self) -> None:
@@ -483,17 +490,23 @@ class SimulatorService:
         if existing_rows:
             return [self._advisor_output_from_row(row) for row in existing_rows]
 
+        outputs = self._agent_workflow.build_step_outputs(
+            scenario=scenario,
+            step=step,
+            study_context=self._get_study_context(session_record),
+            session_metadata=session_record.metadata_json,
+        )
+
         self._ensure_step_view_logged(
             db=db,
             session_record=session_record,
             scenario_id=scenario.scenario_id,
             step=step,
-            advisor_templates_count=len(step.advisor_outputs),
+            advisor_outputs_count=len(outputs),
         )
 
         created_rows: list[AgentOutput] = []
-        for template in step.advisor_outputs:
-            output = self._build_advisor_output(template.advisor_id, template)
+        for output in outputs:
             row = AgentOutput(
                 session_id=session_record.session_id,
                 step_id=step.step_id,
@@ -505,6 +518,7 @@ class SimulatorService:
                     "advisor_id": output.advisor_id,
                     "role": output.role,
                     "source_materials": output.source_materials,
+                    "metadata": output.metadata,
                 },
             )
             db.add(row)
@@ -518,8 +532,26 @@ class SimulatorService:
                 payload=output.model_dump(),
             )
 
-        if not step.advisor_outputs:
+        if not outputs:
             return []
+
+        synthesis_output = next(
+            (output for output in outputs if output.metadata.get("orchestration_role") == "synthesis"),
+            None,
+        )
+        if synthesis_output is not None:
+            self._log_event(
+                db,
+                session_id=session_record.session_id,
+                scenario_id=scenario.scenario_id,
+                step_id=step.step_id,
+                event_type="multi_agent_panel_composed",
+                payload={
+                    "panel_size": len(outputs),
+                    "synthesis_advisor_id": synthesis_output.advisor_id,
+                    "conflict_level": synthesis_output.metadata.get("conflict_level"),
+                },
+            )
 
         db.flush()
         return [self._advisor_output_from_row(row) for row in created_rows]
@@ -531,7 +563,7 @@ class SimulatorService:
         session_record: SessionRecord,
         scenario_id: str,
         step: ScenarioStep,
-        advisor_templates_count: int,
+        advisor_outputs_count: int,
     ) -> None:
         """Write the first-view event for a step exactly once."""
         existing_event = db.scalar(
@@ -550,20 +582,7 @@ class SimulatorService:
             scenario_id=scenario_id,
             step_id=step.step_id,
             event_type="step_viewed",
-            payload={"advisor_count": advisor_templates_count, "phase": step.phase},
-        )
-
-    def _build_advisor_output(self, advisor_id: str, template) -> AdvisorOutput:
-        """Merge advisor identity metadata with step-authored output content."""
-        advisor = self._advisor_registry.get(advisor_id)
-        return AdvisorOutput(
-            advisor_id=advisor.advisor_id,
-            display_name=advisor.display_name,
-            role=advisor.role,
-            recommendation=template.recommendation,
-            rationale=template.rationale,
-            confidence=template.confidence,
-            source_materials=advisor.source_materials,
+            payload={"advisor_count": advisor_outputs_count, "phase": step.phase},
         )
 
     @staticmethod
@@ -577,6 +596,7 @@ class SimulatorService:
             rationale=row.rationale,
             confidence=float(row.confidence),
             source_materials=row.metadata_json.get("source_materials", []),
+            metadata=row.metadata_json.get("metadata", {}),
         )
 
     @staticmethod

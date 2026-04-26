@@ -12,6 +12,8 @@ from app.schemas.prototype import (
     PrototypeSessionStateResponse,
     PrototypeSessionStateSyncRequest,
 )
+from app.schemas.scoring import DimensionScoringResult
+from app.services.scoring import DimensionScoringService
 
 
 class PrototypeSessionError(Exception):
@@ -25,8 +27,14 @@ class PrototypeSessionNotFoundError(PrototypeSessionError):
 class PrototypeSessionService:
     """Persist the exact prototype role/chat UI state without forcing a new frontend shell."""
 
-    def __init__(self, *, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        *,
+        session_factory: sessionmaker[Session],
+        scoring_service: DimensionScoringService | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._scoring_service = scoring_service
 
     def create_session(self, request: PrototypeSessionCreateRequest) -> PrototypeSessionCreateResponse:
         """Create one persisted session for the prototype role-selection and live-chat flow."""
@@ -89,6 +97,9 @@ class PrototypeSessionService:
                 "data_snapshot": request.data_snapshot,
                 "task_completed": request.task_completed,
             }
+            dimension_scoring = self._score_snapshot(prototype_payload["snapshot"])
+            if dimension_scoring is not None:
+                prototype_payload["dimension_scoring"] = dimension_scoring.model_dump(mode="json")
             prototype_payload["synced_at"] = synced_at.isoformat()
 
             metadata["prototype"] = prototype_payload
@@ -122,6 +133,12 @@ class PrototypeSessionService:
                     "task_completed": request.task_completed,
                     "message_count": len(request.messages),
                     "user_action_count": len(request.data_snapshot.get("userActions", [])),
+                    "dimension_score_count": len(dimension_scoring.scores)
+                    if dimension_scoring is not None
+                    else 0,
+                    "unclassified_count": len(dimension_scoring.unclassified_behaviors)
+                    if dimension_scoring is not None
+                    else 0,
                 },
             )
             db.commit()
@@ -142,11 +159,11 @@ class PrototypeSessionService:
             raise PrototypeSessionNotFoundError(f"Prototype session '{session_id}' was not found.")
         return record
 
-    @staticmethod
-    def _to_response(record: SessionRecord) -> PrototypeSessionStateResponse:
+    def _to_response(self, record: SessionRecord) -> PrototypeSessionStateResponse:
         """Convert the stored session metadata into the response used by the prototype frontend."""
         prototype_payload = dict((record.metadata_json or {}).get("prototype", {}))
         snapshot = dict(prototype_payload.get("snapshot", {}))
+        dimension_scoring = self._stored_or_current_scoring(prototype_payload, snapshot)
         return PrototypeSessionStateResponse(
             session_id=record.session_id,
             scenario_id=record.scenario_id,
@@ -160,7 +177,24 @@ class PrototypeSessionService:
             synced_at=prototype_payload.get("synced_at"),
             completed_at=record.completed_at,
             snapshot=snapshot,
+            dimension_scores=dimension_scoring.get("scores", {}),
+            unclassified_behaviors=dimension_scoring.get("unclassified_behaviors", []),
+            scoring_metadata=dimension_scoring.get("metadata"),
         )
+
+    def _score_snapshot(self, snapshot: dict) -> DimensionScoringResult | None:
+        """Run the active scoring rubric if scoring has been configured."""
+        if self._scoring_service is None:
+            return None
+        return self._scoring_service.score_snapshot(snapshot)
+
+    def _stored_or_current_scoring(self, prototype_payload: dict, snapshot: dict) -> dict:
+        """Return stored scoring or compute it on demand for older sessions."""
+        scoring_payload = prototype_payload.get("dimension_scoring")
+        if isinstance(scoring_payload, dict):
+            return scoring_payload
+        scoring_result = self._score_snapshot(snapshot)
+        return scoring_result.model_dump(mode="json") if scoring_result is not None else {}
 
     @staticmethod
     def _log_event(

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     default_scenario_id: str = "cisco_product_launch_v1"
     scenario_config_dir: Path = Field(default=PHASE_ROOT / "configs" / "scenarios")
     advisor_config_dir: Path = Field(default=PHASE_ROOT / "configs" / "advisors")
+    scoring_rubric_path: Path = Field(
+        default=PHASE_ROOT / "configs" / "scoring" / "dimension_rubric.yaml"
+    )
 
     @field_validator("frontend_origins", mode="before")
     @classmethod
@@ -34,7 +37,12 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @field_validator("scenario_config_dir", "advisor_config_dir", mode="before")
+    @field_validator(
+        "scenario_config_dir",
+        "advisor_config_dir",
+        "scoring_rubric_path",
+        mode="before",
+    )
     @classmethod
     def _coerce_path(cls, value: str | Path) -> Path:
         """Resolve relative config paths from the Phase 2 repository root."""

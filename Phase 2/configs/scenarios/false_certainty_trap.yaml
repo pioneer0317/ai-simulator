@@ -95,6 +95,9 @@ steps:
     step_metadata:
       role_banner: Frontline Engineer
       countdown_seconds: 25
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_brief_pm
     phase: brief
@@ -129,6 +132,9 @@ steps:
     step_metadata:
       role_banner: Product Manager
       countdown_seconds: 40
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_brief_vp
     phase: brief
@@ -163,6 +169,9 @@ steps:
     step_metadata:
       role_banner: VP Engineering
       countdown_seconds: 55
+      orchestration:
+        enabled: true
+        synthesis_advisor_id: decision_synthesizer
 
   - step_id: step_decide_frontline
     phase: decide

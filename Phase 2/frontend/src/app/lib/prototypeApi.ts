@@ -34,6 +34,56 @@ export interface PrototypeSessionStateResponse {
     data_snapshot?: Record<string, unknown>;
     task_completed?: boolean;
   };
+  dimension_scores: Record<string, DimensionScore>;
+  unclassified_behaviors: UnclassifiedBehavior[];
+  scoring_metadata?: ScoringMetadata | null;
+}
+
+export interface ScoreEvidence {
+  evidence_id: string;
+  dimension_id: string;
+  signal_id: string;
+  label: string;
+  source: 'message' | 'action' | 'timeline' | 'flag';
+  points: number;
+  polarity: 'positive' | 'negative' | 'neutral';
+  source_id?: string | null;
+  excerpt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface DimensionScore {
+  dimension_id: string;
+  label: string;
+  description: string;
+  status: 'measured' | 'not_measured';
+  confidence: 'high' | 'medium' | 'low' | 'needs_review';
+  score?: number | null;
+  base_score: number;
+  positive_points: number;
+  negative_points: number;
+  opportunities: number;
+  signal_count: number;
+  evidence: ScoreEvidence[];
+}
+
+export interface UnclassifiedBehavior {
+  source: 'message' | 'action' | 'timeline';
+  source_id?: string | null;
+  raw_text: string;
+  reason: string;
+  possible_dimensions: string[];
+  confidence: 'high' | 'medium' | 'low' | 'needs_review';
+}
+
+export interface ScoringMetadata {
+  rubric_version: string;
+  generated_at: string;
+  score_scale: Record<string, number>;
+  primary_dimensions: string[];
+  llm_classifier_enabled: boolean;
+  llm_classifier_status: string;
+  notes: string[];
 }
 
 export interface PrototypeChatMessagePayload {
