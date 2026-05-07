@@ -31,7 +31,7 @@ class DimensionScore(BaseModel):
 
 
 class DeterministicScoringResult(BaseModel):
-    """Rubric-based result before optional LLM review."""
+    """Rubric-based result before secondary/fallback LLM review."""
 
     scores: dict[str, DimensionScore]
     unclassified_event_ids: list[str] = Field(default_factory=list)
@@ -40,7 +40,7 @@ class DeterministicScoringResult(BaseModel):
 
 
 class LLMGradeReview(BaseModel):
-    """Optional LLM evaluator output and parser status."""
+    """Secondary/fallback LLM evaluator output and parser status."""
 
     status: Literal["disabled", "completed", "failed"]
     provider: str

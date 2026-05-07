@@ -25,7 +25,7 @@ Episode packet
   -> participant messages/actions/artifact opens
   -> optional bounded LLM agent response
   -> deterministic scoring
-  -> optional LLM grading review
+  -> secondary/fallback LLM grading review
 ```
 
 This lets the simulator test whether the participant:
@@ -46,7 +46,7 @@ Episode packet remains source of truth
         |
         +-- deterministic scoring uses structured events and rubric signals
         |
-        +-- optional LLM grader reviews transcript and hidden ground truth
+        +-- secondary/fallback LLM grader reviews transcript and hidden ground truth
         |
         +-- LLM agent can generate bounded replies from the same packet
 ```
@@ -55,7 +55,7 @@ The safest MVP sequence is:
 
 1. Build rich packets and artifact/event logging.
 2. Add deterministic scoring.
-3. Add optional LLM grading.
+3. Add secondary/fallback LLM grading.
 4. Add LLM-generated agent replies inside the episode contract.
 5. Later, add true multi-agent orchestration for episodes that need it.
 

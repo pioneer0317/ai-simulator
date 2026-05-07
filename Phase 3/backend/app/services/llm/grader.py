@@ -11,7 +11,7 @@ from app.services.llm.prompts import PromptTemplateRenderer
 
 
 class LLMGrader:
-    """Optional second-pass evaluator for behavior that deterministic rules miss."""
+    """Secondary/fallback evaluator for behavior that deterministic rules miss."""
 
     def __init__(
         self,
@@ -41,7 +41,7 @@ class LLMGrader:
         deterministic: DeterministicScoringResult,
         rubric: dict[str, Any],
     ) -> LLMGradeReview:
-        """Return a disabled, failed, or completed LLM review."""
+        """Return the secondary grader review status and payload."""
         prompt, prompt_version = self._prompt_renderer.render(
             self._template_name,
             episode_packet=self._episode_payload(episode),

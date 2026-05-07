@@ -254,4 +254,4 @@ metadata:
     andriana: embedded enterprise context with prior agent activity and artifacts
   implementation_level:
     - level_1_rich_packet
-    - level_2_optional_llm_grader
+    - level_2_secondary_llm_grader

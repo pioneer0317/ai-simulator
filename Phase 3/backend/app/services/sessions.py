@@ -119,8 +119,10 @@ class EpisodeSessionService:
         """Create an in-memory session and return the episode launch payload."""
         participant_episode = self.get_participant_episode(request.episode_id)
         session_id = str(uuid4())
+        participant_run_id = f"run-{uuid4()}"
         record = SessionRecord(
             session_id=session_id,
+            participant_run_id=participant_run_id,
             episode_id=request.episode_id,
             participant_profile=request.participant_profile,
             participant_episode=participant_episode,
@@ -129,6 +131,7 @@ class EpisodeSessionService:
         self._session_store.save(record)
         return StartEpisodeSessionResponse(
             session_id=session_id,
+            participant_run_id=participant_run_id,
             episode_id=request.episode_id,
             status=record.status,
             participant_episode=participant_episode,
@@ -345,6 +348,7 @@ class EpisodeSessionService:
             summaries.append(
                 AdminSessionSummary(
                     session_id=record.session_id,
+                    participant_run_id=record.participant_run_id,
                     episode_id=record.episode_id,
                     environment=record.environment,
                     status=record.status,
@@ -358,7 +362,7 @@ class EpisodeSessionService:
         return summaries
 
     def score_session(self, session_id: str) -> EpisodeScoringResponse:
-        """Run deterministic scoring and optional LLM review for one session."""
+        """Run deterministic scoring and secondary/fallback LLM review for one session."""
         record = self._get_record(session_id)
         episode = self._episode_loader.get(record.episode_id)
         deterministic = self._scorer.score(episode=episode, events=record.events)
@@ -413,6 +417,7 @@ class EpisodeSessionService:
             metadata={
                 **metadata,
                 "environment": record.environment,
+                "participant_run_id": record.participant_run_id,
                 "sequence_index": len(record.events),
             },
         )
@@ -429,6 +434,7 @@ class EpisodeSessionService:
     def _state_response(record: SessionRecord) -> SessionStateResponse:
         return SessionStateResponse(
             session_id=record.session_id,
+            participant_run_id=record.participant_run_id,
             episode_id=record.episode_id,
             environment=record.environment,
             status=record.status,

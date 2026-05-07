@@ -51,6 +51,7 @@ def export_admin_events_csv(request: Request) -> Response:
         output,
         fieldnames=[
             "session_id",
+            "participant_run_id",
             "episode_id",
             "environment",
             "status",
@@ -76,6 +77,7 @@ def export_admin_events_csv(request: Request) -> Response:
             writer.writerow(
                 {
                     "session_id": state.session_id,
+                    "participant_run_id": state.participant_run_id,
                     "episode_id": state.episode_id,
                     "environment": state.environment,
                     "status": state.status,
@@ -219,7 +221,7 @@ def get_session(session_id: str, request: Request) -> SessionStateResponse:
 
 @router.post("/sessions/{session_id}/score", response_model=EpisodeScoringResponse)
 def score_session(session_id: str, request: Request) -> EpisodeScoringResponse:
-    """Run deterministic scoring plus optional LLM grading."""
+    """Run deterministic scoring plus secondary/fallback LLM grading."""
     try:
         return _service(request).score_session(session_id)
     except SessionNotFoundError as exc:

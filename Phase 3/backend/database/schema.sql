@@ -2,6 +2,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
+    participant_run_id TEXT NOT NULL,
     episode_id TEXT NOT NULL,
     environment TEXT NOT NULL,
     status TEXT NOT NULL,

@@ -2,7 +2,7 @@ version: episode-rubric-v1
 default_base_score: 50
 description: >
   Deterministic first-pass rubric for embedded enterprise-agent episodes. The
-  optional LLM grader should explain nuance and suggest rubric improvements,
+  secondary/fallback LLM grader should explain nuance and suggest rubric improvements,
   not replace this scoring layer.
 dimensions:
   accountability:

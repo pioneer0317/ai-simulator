@@ -3,7 +3,7 @@
 This backend prototype implements the revised simulator direction:
 
 1. **Level 1: rich episode packets** - scenarios are now workplace episodes with visible context, prior events, artifacts, hidden ground truth, agent capability boundaries, and scoring moments.
-2. **Level 2: optional LLM grading** - deterministic scoring runs first, then an LLM grader can review the transcript against a versioned prompt template when enabled.
+2. **Level 2: secondary/fallback LLM grading** - deterministic scoring runs first, then an LLM grader reviews the transcript against a versioned prompt template to cover outliers and rubric gaps when a provider is configured.
 3. **Level 3: bounded assistant replies** - the chatbot records real user turns and can answer using only the episode packet. In offline/demo mode, a deterministic scenario fallback keeps the chat interactive without calling an external model.
 
 The assistant is not an autonomous background agent in this phase. It is a scenario-bound participant-facing chatbot: every reply is constrained by the current episode packet and the visible artifacts.
@@ -57,7 +57,7 @@ Do not commit populated `.sqlite` files. They contain local participant/test dat
 - `POST /api/v1/sessions/{session_id}/agent-turn` records a user message and returns a bounded dynamic agent reply.
 - `POST /api/v1/sessions/{session_id}/reflection` records post-simulation motivation/reflection answers.
 - `POST /api/v1/sessions/{session_id}/complete` marks the scenario session complete.
-- `POST /api/v1/sessions/{session_id}/score` returns deterministic scores plus optional LLM review.
+- `POST /api/v1/sessions/{session_id}/score` returns deterministic scores plus the secondary/fallback LLM review status.
 
 ## Environment Flags
 

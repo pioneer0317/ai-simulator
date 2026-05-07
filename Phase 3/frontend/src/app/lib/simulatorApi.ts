@@ -49,6 +49,7 @@ export interface StartSessionPayload {
 
 export interface StartSessionResponse {
   session_id: string;
+  participant_run_id: string;
   episode_id: string;
   status: string;
 }
@@ -97,6 +98,7 @@ export interface AgentTurnResponse {
 
 export interface AdminSessionSummary {
   session_id: string;
+  participant_run_id: string;
   episode_id: string;
   environment: string;
   status: string;
@@ -116,6 +118,7 @@ export interface AdminSessionSummary {
 
 export interface SessionStateResponse {
   session_id: string;
+  participant_run_id: string;
   episode_id: string;
   environment: string;
   status: string;

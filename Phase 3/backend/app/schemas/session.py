@@ -102,6 +102,7 @@ class StartEpisodeSessionResponse(BaseModel):
     """Return session identifiers plus the participant-safe episode packet."""
 
     session_id: str
+    participant_run_id: str
     episode_id: str
     status: str
     participant_episode: ParticipantEpisode
@@ -131,6 +132,7 @@ class SessionStateResponse(BaseModel):
     """Return the current persisted session state."""
 
     session_id: str
+    participant_run_id: str
     episode_id: str
     environment: str
     status: str
@@ -145,6 +147,7 @@ class AdminSessionSummary(BaseModel):
     """Compact session row for admin review dashboards."""
 
     session_id: str
+    participant_run_id: str
     episode_id: str
     environment: str
     status: str

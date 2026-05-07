@@ -1,6 +1,6 @@
 # LLM Architecture
 
-This document explains how Phase 3 uses LLMs for the participant-facing chatbot and the optional post-session grader. The main design choice is that both LLM paths are bounded by the episode packet. The model is not treated as a free agent with open access to company data, email, files, or the internet.
+This document explains how the current system uses LLMs for the participant-facing chatbot and the fallback post-session grader. The main design choice is that both LLM paths are bounded by the episode packet. The model is not treated as a free agent with open access to company data, email, files, or the internet.
 
 ## High-Level Flow
 
@@ -31,7 +31,7 @@ Backend /score endpoint
    ->
 Deterministic scorer
    ->
-Optional LLM grader review
+Secondary/fallback LLM grader review
    ->
 Score response for analysis/admin use
 ```
@@ -69,13 +69,13 @@ POST /api/v1/sessions/{session_id}/score
 The implementation is split across:
 
 - `backend/app/api/routes/episodes.py`: exposes the route.
-- `backend/app/services/sessions.py`: runs deterministic scoring, then optional LLM review.
+- `backend/app/services/sessions.py`: runs deterministic scoring, then the secondary/fallback LLM review.
 - `backend/app/services/scoring/deterministic.py`: computes rule-based scores from structured events and rubric signals.
 - `backend/app/services/llm/grader.py`: builds the evaluator prompt, calls the LLM, and parses JSON.
 - `configs/prompts/dimension_grader.md`: prompt template for the grader.
 - `configs/scoring/dimension_rubric.yaml`: deterministic scoring rubric.
 
-The grader does not replace deterministic scoring. It is a second-pass review for behaviors that rule-based scoring may miss, such as judgment quality, accountability, uncertainty handling, and whether the participant relied on AI appropriately.
+The grader does not replace deterministic scoring. It is the fallback review layer after rubric scoring, used to cover outliers and behaviors that rule-based scoring may miss, such as judgment quality, accountability, uncertainty handling, and whether the participant relied on AI appropriately.
 
 ## Configuration
 
@@ -231,6 +231,19 @@ The key scenario materials are encoded in YAML, including:
 - scoring moments
 
 This preserves research control: every participant is evaluated against the same scenario facts and the assistant cannot introduce uncontrolled outside information.
+
+## Session And Participant Identifiers
+
+The backend separates run identity from participant metadata:
+
+- `session_id`: backend-generated UUID for one simulation run.
+- `participant_run_id`: backend-generated pseudonymous run identifier, intended for research exports and analysis joins.
+- `participant_id`: optional study/subject id supplied by the caller in `participant_profile`.
+- `event_id`: backend-generated UUID for one logged event.
+- `created_at`: backend timestamp for each event.
+- `started_at` and `completed_at`: backend timestamps for the session lifecycle.
+
+This means the simulator does not require a real name, email, or authenticated user account to collect analyzable data. If an external study system has a stable subject id, it can pass that value as `participant_profile.participant_id`; otherwise, analysis can still use `participant_run_id` without depending on personally identifying information.
 
 ## Fallback Behavior
 

@@ -17,6 +17,7 @@ class SessionRecord:
     """Persistable session state used by the simulator service."""
 
     session_id: str
+    participant_run_id: str
     episode_id: str
     participant_profile: ParticipantProfile
     participant_episode: ParticipantEpisode
@@ -78,7 +79,7 @@ class SQLiteSessionStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT session_id, episode_id, environment, status,
+                SELECT session_id, participant_run_id, episode_id, environment, status,
                        participant_profile_json, participant_episode_json,
                        started_at, completed_at
                 FROM sessions
@@ -101,6 +102,7 @@ class SQLiteSessionStore:
 
         return SessionRecord(
             session_id=row["session_id"],
+            participant_run_id=row["participant_run_id"] or _fallback_participant_run_id(row["session_id"]),
             episode_id=row["episode_id"],
             environment=row["environment"],
             status=row["status"],
@@ -123,12 +125,13 @@ class SQLiteSessionStore:
             conn.execute(
                 """
                 INSERT INTO sessions (
-                    session_id, episode_id, environment, status,
+                    session_id, participant_run_id, episode_id, environment, status,
                     participant_profile_json, participant_episode_json,
                     started_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
+                    participant_run_id = excluded.participant_run_id,
                     episode_id = excluded.episode_id,
                     environment = excluded.environment,
                     status = excluded.status,
@@ -139,6 +142,7 @@ class SQLiteSessionStore:
                 """,
                 (
                     record.session_id,
+                    record.participant_run_id,
                     record.episode_id,
                     record.environment,
                     record.status,
@@ -197,6 +201,7 @@ class SQLiteSessionStore:
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
+                    participant_run_id TEXT NOT NULL,
                     episode_id TEXT NOT NULL,
                     environment TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -205,6 +210,14 @@ class SQLiteSessionStore:
                     started_at TEXT NOT NULL,
                     completed_at TEXT
                 )
+                """
+            )
+            _ensure_column(conn, "sessions", "participant_run_id", "TEXT")
+            conn.execute(
+                """
+                UPDATE sessions
+                SET participant_run_id = 'run-' || session_id
+                WHERE participant_run_id IS NULL OR participant_run_id = ''
                 """
             )
             conn.execute(
@@ -253,6 +266,19 @@ def _sqlite_path(database_url: str) -> Path:
     if not raw_path:
         raise ValueError("SQLite database URL must include a file path.")
     return path.expanduser().resolve()
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+    columns = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def _fallback_participant_run_id(session_id: str) -> str:
+    return f"run-{session_id}"
 
 
 def _json(model) -> str:

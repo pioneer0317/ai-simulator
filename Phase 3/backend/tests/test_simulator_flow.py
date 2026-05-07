@@ -77,6 +77,9 @@ def test_episode_session_scores_level_1_and_returns_disabled_llm_review() -> Non
         )
         assert start.status_code == 201
         session_id = start.json()["session_id"]
+        participant_run_id = start.json()["participant_run_id"]
+        assert participant_run_id.startswith("run-")
+        assert participant_run_id != session_id
         visible_artifact_ids = {
             artifact["artifact_id"] for artifact in start.json()["participant_episode"]["artifacts"]
         }
@@ -164,9 +167,11 @@ def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Pa
     assert state.status_code == 200
     payload = state.json()
     assert payload["session_id"] == session_id
+    assert payload["participant_run_id"].startswith("run-")
     assert payload["events"][0]["event_type"] == "artifact_opened"
     assert payload["events"][0]["artifact_id"] == "launch_readiness_dashboard"
     assert payload["events"][0]["metadata"]["ui_surface"] == "mail_window"
+    assert payload["events"][0]["metadata"]["participant_run_id"] == payload["participant_run_id"]
 
 
 def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path) -> None:
@@ -198,6 +203,7 @@ def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path
         assert sessions.status_code == 200
         payload = sessions.json()
         assert payload[0]["session_id"] == session_id
+        assert payload[0]["participant_run_id"].startswith("run-")
         assert payload[0]["event_count"] == 1
 
         export = client.get("/api/v1/admin/events.csv")
@@ -205,6 +211,7 @@ def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path
         assert "text/csv" in export.headers["content-type"]
         assert "notification_clicked" in export.text
         assert "admin-check" in export.text
+        assert "participant_run_id" in export.text.splitlines()[0]
 
 
 def test_frontend_flow_describes_unified_research_routes() -> None:
@@ -284,6 +291,7 @@ def test_unified_frontend_lifecycle_captures_survey_reflection_and_completion() 
         assert state.status_code == 200
         payload = state.json()
         assert payload["status"] == "completed"
+        assert payload["participant_run_id"].startswith("run-")
         assert [event["event_type"] for event in payload["events"]] == [
             "pre_questionnaire_submitted",
             "post_reflection_submitted",

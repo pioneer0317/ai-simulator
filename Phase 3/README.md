@@ -18,7 +18,7 @@ enter workplace episode
 -> interact with the agent and artifacts
 -> submit a decision or stakeholder response
 -> deterministic scoring
--> optional LLM grading review
+-> secondary/fallback LLM grading review
 ```
 
 This preserves the current backend idea that scenarios are defined in configuration, but the unit of work is now an **episode packet** rather than a simple decision step.
@@ -40,15 +40,15 @@ The first review-ready episode is:
 
 ## Level 2 Implemented
 
-Level 2 adds an optional LLM grading layer:
+Level 2 adds a secondary/fallback LLM grading layer:
 
 - prompt template: `configs/prompts/dimension_grader.md`
 - provider-neutral `LLMClient` interface
-- disabled-by-default LLM grader
+- runtime-configured LLM grader
 - fixture client for tests/development
 - JSON parser and failure fallback
 
-The LLM grader is a second-pass reviewer. It should explain nuance and suggest rubric improvements, not replace the deterministic scoring system.
+The LLM grader is the second-pass fallback reviewer after deterministic scoring. It should cover outliers and rubric gaps, explain nuance, and suggest rubric improvements; it does not replace the deterministic scoring system.
 
 ## Level 3 Implemented
 
