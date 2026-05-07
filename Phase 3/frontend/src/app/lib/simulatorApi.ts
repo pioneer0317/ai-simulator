@@ -1,0 +1,261 @@
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+
+const BACKEND_SESSION_ID_KEY = 'simulator-backend-session-id';
+const DEFAULT_EPISODE_ID = 'stakeholder_report_error_v1';
+
+export type SimulatorActor = 'participant' | 'agent' | 'system' | 'evaluator';
+
+export type SimulatorEventType =
+  | 'session_started'
+  | 'pre_questionnaire_submitted'
+  | 'scenario_started'
+  | 'notification_shown'
+  | 'notification_clicked'
+  | 'notification_closed'
+  | 'app_opened'
+  | 'window_opened'
+  | 'window_focused'
+  | 'window_minimized'
+  | 'window_closed'
+  | 'window_maximized'
+  | 'artifact_opened'
+  | 'assistant_opened'
+  | 'assistant_minimized'
+  | 'assistant_expanded'
+  | 'assistant_hidden'
+  | 'suggestion_selected'
+  | 'file_picker_opened'
+  | 'file_attached'
+  | 'file_removed'
+  | 'file_created'
+  | 'email_sent'
+  | 'user_message'
+  | 'agent_message'
+  | 'final_response'
+  | 'post_reflection_submitted'
+  | 'scenario_completed';
+
+export interface StartSessionPayload {
+  episode_id?: string;
+  participant_profile?: {
+    participant_id?: string | null;
+    industry?: string | null;
+    function?: string | null;
+    level?: string | null;
+    ai_relationship_label?: string | null;
+    metadata?: Record<string, unknown>;
+  };
+}
+
+export interface StartSessionResponse {
+  session_id: string;
+  episode_id: string;
+  status: string;
+}
+
+export interface PreQuestionnairePayload {
+  functional_area?: string | null;
+  level?: string | null;
+  training_status?: string | null;
+  answers?: Array<{
+    question_id: string;
+    value: string;
+    label?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReflectionPayload {
+  main_influence?: string | null;
+  trust_reason?: string | null;
+  unchecked_reason?: string | null;
+  answers?: PreQuestionnairePayload['answers'];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SessionEventPayload {
+  event_type: SimulatorEventType | string;
+  actor?: SimulatorActor;
+  content?: string | null;
+  artifact_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentTurnResponse {
+  session_id: string;
+  status: 'completed' | 'fallback' | 'disabled' | 'failed';
+  provider: string;
+  model?: string | null;
+  prompt_version: string;
+  agent_event?: {
+    content?: string | null;
+    metadata?: Record<string, unknown>;
+  } | null;
+  error?: string | null;
+}
+
+export interface AdminSessionSummary {
+  session_id: string;
+  episode_id: string;
+  environment: string;
+  status: string;
+  participant_profile: {
+    participant_id?: string | null;
+    industry?: string | null;
+    function?: string | null;
+    level?: string | null;
+    ai_relationship_label?: string | null;
+    metadata?: Record<string, unknown>;
+  };
+  event_count: number;
+  started_at: string;
+  completed_at?: string | null;
+  last_event_at?: string | null;
+}
+
+export interface SessionStateResponse {
+  session_id: string;
+  episode_id: string;
+  environment: string;
+  status: string;
+  participant_profile: AdminSessionSummary['participant_profile'];
+  events: Array<{
+    event_id: string;
+    event_type: string;
+    actor: SimulatorActor;
+    content?: string | null;
+    artifact_id?: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>;
+  started_at: string;
+  completed_at?: string | null;
+}
+
+export async function startSimulatorSession(
+  payload: StartSessionPayload = {}
+): Promise<StartSessionResponse> {
+  const response = await request<StartSessionResponse>('/sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      episode_id: payload.episode_id ?? DEFAULT_EPISODE_ID,
+      participant_profile: payload.participant_profile ?? {},
+    }),
+  });
+  storeSimulatorSessionId(response.session_id);
+  return response;
+}
+
+export async function submitPreQuestionnaire(
+  sessionId: string,
+  payload: PreQuestionnairePayload
+) {
+  return request(`/sessions/${sessionId}/pre-questionnaire`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function submitReflection(sessionId: string, payload: ReflectionPayload) {
+  return request(`/sessions/${sessionId}/reflection`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function appendSimulatorEvent(sessionId: string, payload: SessionEventPayload) {
+  return request(`/sessions/${sessionId}/events`, {
+    method: 'POST',
+    body: JSON.stringify({
+      actor: 'participant',
+      ...payload,
+      metadata: {
+        route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+        client_recorded_at: new Date().toISOString(),
+        ...(payload.metadata ?? {}),
+      },
+    }),
+  });
+}
+
+export async function generateAgentTurn(
+  sessionId: string,
+  payload: {
+    message: string;
+    referenced_artifact_ids?: string[];
+    metadata?: Record<string, unknown>;
+  }
+): Promise<AgentTurnResponse> {
+  return request<AgentTurnResponse>(`/sessions/${sessionId}/agent-turn`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function completeSimulatorSession(
+  sessionId: string,
+  payload: { reason?: string; final_response?: string | null; metadata?: Record<string, unknown> } = {}
+) {
+  return request(`/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listAdminSessions(): Promise<AdminSessionSummary[]> {
+  return request<AdminSessionSummary[]>('/admin/sessions', {
+    method: 'GET',
+  });
+}
+
+export async function getSimulatorSession(sessionId: string): Promise<SessionStateResponse> {
+  return request<SessionStateResponse>(`/sessions/${sessionId}`, {
+    method: 'GET',
+  });
+}
+
+export function getAdminEventsCsvUrl(): string {
+  return `${API_BASE_URL}/admin/events.csv`;
+}
+
+export function storeSimulatorSessionId(sessionId: string) {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(BACKEND_SESSION_ID_KEY, sessionId);
+}
+
+export function getStoredSimulatorSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage.getItem(BACKEND_SESSION_ID_KEY);
+}
+
+export function clearStoredSimulatorSession() {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(BACKEND_SESSION_ID_KEY);
+}
+
+async function request<T = unknown>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const message = await extractErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function extractErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    return payload.detail ?? `Request failed with status ${response.status}`;
+  } catch {
+    return `Request failed with status ${response.status}`;
+  }
+}

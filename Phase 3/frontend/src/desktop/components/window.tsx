@@ -1,0 +1,1063 @@
+import { useState, useEffect } from 'react';
+import { Minus, Square, X, Folder, HardDrive, File, FileText } from 'lucide-react';
+import type { SimulatorEventType } from '../../app/lib/simulatorApi';
+
+interface WindowProps {
+  id: string;
+  title: string;
+  app: string;
+  zIndex: number;
+  onClose: () => void;
+  onMinimize: () => void;
+  onFocus: () => void;
+  emailId?: string;
+  onMaximizeChange?: (maximized: boolean) => void;
+  workFiles?: string[];
+  sentEmails?: Array<{
+    id: string;
+    to: string;
+    subject: string;
+    body: string;
+    attachments?: string[];
+    time: string;
+  }>;
+  onSendEmail?: (to: string, subject: string, body: string, attachments?: string[]) => void;
+  onTrackEvent?: (
+    eventType: SimulatorEventType,
+    metadata?: Record<string, unknown>,
+    content?: string | null,
+    artifactId?: string | null
+  ) => void;
+}
+
+export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, workFiles = [], sentEmails = [], onSendEmail, onTrackEvent }: WindowProps) {
+  const [position, setPosition] = useState({ x: Math.random() * 200 + 100, y: Math.random() * 100 + 50 });
+  const [size, setSize] = useState({ width: 600, height: 400 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [openDocument, setOpenDocument] = useState<string | null>(null);
+  const [isComposing, setIsComposing] = useState(false);
+  const [replyTo, setReplyTo] = useState('');
+  const [replySubject, setReplySubject] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState<'inbox' | 'sent'>('inbox');
+  const [selectedChannel, setSelectedChannel] = useState<string>('general');
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<string>('');
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
+  const [preMaximizedState, setPreMaximizedState] = useState({ position, size });
+
+  const toggleMaximized = (maximized: boolean) => {
+    if (maximized) {
+      // Save current state before maximizing
+      setPreMaximizedState({ position, size });
+    } else {
+      // Restore previous state
+      setPosition(preMaximizedState.position);
+      setSize(preMaximizedState.size);
+    }
+    setIsMaximized(maximized);
+    onMaximizeChange?.(maximized);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+    onFocus();
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent, direction: string) => {
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeDirection(direction);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: size.width,
+      height: size.height,
+      posX: position.x,
+      posY: position.y
+    });
+    onFocus();
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (isDragging) {
+      setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    }
+
+    if (isResizing) {
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaY = e.clientY - resizeStart.y;
+      let newWidth = resizeStart.width;
+      let newHeight = resizeStart.height;
+      let newX = resizeStart.posX;
+      let newY = resizeStart.posY;
+
+      // Handle different resize directions
+      if (resizeDirection.includes('e')) {
+        newWidth = Math.max(400, resizeStart.width + deltaX);
+      }
+      if (resizeDirection.includes('s')) {
+        newHeight = Math.max(300, resizeStart.height + deltaY);
+      }
+      if (resizeDirection.includes('w')) {
+        const targetWidth = resizeStart.width - deltaX;
+        if (targetWidth >= 400) {
+          newWidth = targetWidth;
+          newX = resizeStart.posX + deltaX;
+        } else {
+          newWidth = 400;
+          newX = resizeStart.posX + (resizeStart.width - 400);
+        }
+      }
+      if (resizeDirection.includes('n')) {
+        const targetHeight = resizeStart.height - deltaY;
+        if (targetHeight >= 300) {
+          newHeight = targetHeight;
+          newY = resizeStart.posY + deltaY;
+        } else {
+          newHeight = 300;
+          newY = resizeStart.posY + (resizeStart.height - 300);
+        }
+      }
+
+      setSize({ width: newWidth, height: newHeight });
+      setPosition({ x: newX, y: newY });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
+
+  useEffect(() => {
+    if (isDragging || isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, isResizing, dragStart, resizeStart, resizeDirection, position, size]);
+
+  const renderContent = () => {
+    if (app === 'finder') {
+      // Word Document Viewer
+      if (openDocument === 'word') {
+        return (
+          <div className="flex flex-col h-full bg-white/95">
+            <div className="border-b border-gray-300 px-4 py-2 flex items-center justify-between bg-gray-50">
+              <button
+                onClick={() => setOpenDocument(null)}
+                className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
+              >
+                <span>←</span> Back to Work
+              </button>
+              <span className="text-sm font-medium text-gray-700">Q2 Budget Proposal.docx</span>
+              <div className="w-20"></div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 bg-white">
+              <div className="max-w-3xl mx-auto bg-white shadow-sm border border-gray-200 p-12">
+                <h1 className="text-2xl font-bold text-gray-900 mb-6">Q2 2024 Budget Proposal</h1>
+
+                <div className="space-y-4 text-gray-800">
+                  <p className="font-semibold text-lg">Executive Summary</p>
+                  <p className="leading-relaxed">
+                    This document outlines the proposed budget allocation for Q2 2024. The total estimated budget is $2.4M, distributed across marketing, operations, personnel, and technology infrastructure.
+                  </p>
+
+                  <p className="font-semibold text-lg mt-6">Key Highlights</p>
+                  <ul className="list-disc list-inside space-y-2 ml-4">
+                    <li>Marketing and Advertising: 35% increase from Q1</li>
+                    <li>Technology Infrastructure: New cloud services deployment</li>
+                    <li>Personnel: 3 new hires planned for engineering team</li>
+                    <li>Operational Overhead: 5% reduction through automation</li>
+                  </ul>
+
+                  <p className="font-semibold text-lg mt-6">Budget Breakdown</p>
+                  <p className="leading-relaxed">
+                    The detailed breakdown and financial projections are available in the accompanying Excel spreadsheet (Budget_Estimation_Draft.xlsx). This proposal requires approval from the finance director before the board presentation on Monday.
+                  </p>
+
+                  <p className="font-semibold text-lg mt-6">Next Steps</p>
+                  <p className="leading-relaxed">
+                    Please review the attached spreadsheet and finalize all numbers by Sunday evening. Any questions or concerns should be directed to Sarah Chen (sarah.chen@company.com).
+                  </p>
+
+                  <div className="mt-8 pt-6 border-t border-gray-300 text-sm text-gray-600">
+                    <p>Document Status: <span className="text-orange-600 font-medium">DRAFT - Pending Finalization</span></p>
+                    <p>Last Modified: May 3, 2026</p>
+                    <p>Owner: Finance Department</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Final Budget Document Viewer
+      if (openDocument === 'final-budget') {
+        return (
+          <div className="flex flex-col h-full bg-white/95">
+            <div className="border-b border-gray-300 px-4 py-2 flex items-center justify-between bg-gray-50">
+              <button
+                onClick={() => setOpenDocument(null)}
+                className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
+              >
+                <span>←</span> Back to Work
+              </button>
+              <span className="text-sm font-medium text-gray-700">Q2_Budget_Final.xlsx</span>
+              <div className="w-20"></div>
+            </div>
+            <div className="flex-1 overflow-auto bg-white">
+              <div className="p-4">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Sheet: Q2 Budget - FINALIZED</div>
+                <div className="border border-gray-300 inline-block">
+                  <table className="border-collapse">
+                    <thead>
+                      <tr className="bg-green-600 text-white">
+                        <th className="border border-gray-400 px-4 py-2 text-left font-semibold">Category</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Q1 Actual</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Q2 Final</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Change %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Marketing & Advertising</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$520,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$702,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+35%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Personnel Expenses</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$890,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$945,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+6%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Technology Infrastructure</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$380,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$465,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+22%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Operational Overhead</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$310,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$294,500</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-red-600">-5%</td>
+                      </tr>
+                      <tr className="bg-gray-100 font-bold">
+                        <td className="border border-gray-400 px-4 py-2">TOTAL</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right">$2,100,000</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right">$2,406,500</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right text-green-600">+14.6%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded">
+                  <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                    <span className="text-green-600">✓</span> Status: FINALIZED
+                  </p>
+                  <p className="text-sm text-gray-700 mt-2">
+                    All estimates have been verified and approved. Ready for board presentation.
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Generated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Excel Document Viewer
+      if (openDocument === 'excel') {
+        return (
+          <div className="flex flex-col h-full bg-white/95">
+            <div className="border-b border-gray-300 px-4 py-2 flex items-center justify-between bg-gray-50">
+              <button
+                onClick={() => setOpenDocument(null)}
+                className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
+              >
+                <span>←</span> Back to Work
+              </button>
+              <span className="text-sm font-medium text-gray-700">Budget_Estimation_Draft.xlsx</span>
+              <div className="w-20"></div>
+            </div>
+            <div className="flex-1 overflow-auto bg-white">
+              <div className="p-4">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Sheet: Q2 Budget Estimation</div>
+                <div className="border border-gray-300 inline-block">
+                  <table className="border-collapse">
+                    <thead>
+                      <tr className="bg-green-600 text-white">
+                        <th className="border border-gray-400 px-4 py-2 text-left font-semibold">Category</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Q1 Actual</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Q2 Estimate</th>
+                        <th className="border border-gray-400 px-4 py-2 text-right font-semibold">Change %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Marketing & Advertising</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$520,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right bg-yellow-50">$702,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+35%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Personnel Expenses</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$890,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right bg-yellow-50">$945,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+6%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Technology Infrastructure</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$380,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right bg-yellow-50">$465,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-green-600">+22%</td>
+                      </tr>
+                      <tr className="hover:bg-gray-50">
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Operational Overhead</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">$310,000</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right bg-yellow-50">$294,500</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right text-red-600">-5%</td>
+                      </tr>
+                      <tr className="bg-gray-100 font-bold">
+                        <td className="border border-gray-400 px-4 py-2">TOTAL</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right">$2,100,000</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right bg-yellow-100">$2,406,500</td>
+                        <td className="border border-gray-400 px-4 py-2 text-right text-green-600">+14.6%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                  <p className="text-sm font-semibold text-gray-800">⚠️ Status: Draft - Requires Finalization</p>
+                  <p className="text-sm text-gray-700 mt-2">
+                    Yellow highlighted cells indicate estimated values that need verification.
+                    Please review and confirm all numbers before Sunday deadline.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex h-full">
+          {/* Sidebar */}
+          <div className="w-48 bg-gray-100/95 border-r border-gray-300 p-3">
+            <div className="space-y-1">
+              <div className="text-xs text-gray-500 mb-2">Favorites</div>
+              <div
+                onClick={() => setCurrentFolder(null)}
+                className={`flex items-center gap-2 px-2 py-1 hover:bg-gray-200 rounded cursor-pointer ${
+                  currentFolder === null ? 'bg-gray-200' : ''
+                }`}
+              >
+                <Folder className="w-4 h-4 text-blue-500" />
+                <span className="text-sm">Documents</span>
+              </div>
+              <div className="flex items-center gap-2 px-2 py-1 hover:bg-gray-200 rounded cursor-pointer">
+                <Folder className="w-4 h-4 text-blue-500" />
+                <span className="text-sm">Downloads</span>
+              </div>
+              <div className="flex items-center gap-2 px-2 py-1 hover:bg-gray-200 rounded cursor-pointer">
+                <Folder className="w-4 h-4 text-blue-500" />
+                <span className="text-sm">Desktop</span>
+              </div>
+              <div className="text-xs text-gray-500 mt-4 mb-2">Devices</div>
+              <div className="flex items-center gap-2 px-2 py-1 hover:bg-gray-200 rounded cursor-pointer">
+                <HardDrive className="w-4 h-4 text-gray-600" />
+                <span className="text-sm">Macintosh HD</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Main content */}
+          <div className="flex-1 bg-white/95 p-4">
+            {currentFolder === 'Work' ? (
+              <div>
+                <div className="mb-4 flex items-center gap-2 text-sm text-gray-600">
+                  <button onClick={() => setCurrentFolder(null)} className="hover:text-blue-500">Documents</button>
+                  <span>›</span>
+                  <span className="font-medium">Work</span>
+                </div>
+                <div className="grid grid-cols-4 gap-4">
+                  {workFiles.map((fileName, index) => {
+                    const isWord = fileName.endsWith('.docx');
+                    const isExcel = fileName.endsWith('.xlsx');
+                    const isFinalBudget = fileName === 'Q2_Budget_Final.xlsx';
+
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          onTrackEvent?.('artifact_opened', {
+                            source: 'finder',
+                            artifact_kind: isExcel ? 'spreadsheet' : 'document',
+                            file_name: fileName,
+                          }, null, fileName);
+                          if (fileName === 'Q2 Budget Proposal.docx') {
+                            setOpenDocument('word');
+                          } else if (fileName === 'Budget Estimation Draft.xlsx') {
+                            setOpenDocument('excel');
+                          } else if (isFinalBudget) {
+                            setOpenDocument('final-budget');
+                          }
+                        }}
+                        className="flex flex-col items-center gap-2 p-2 hover:bg-blue-100 rounded cursor-pointer"
+                      >
+                        <div className="relative w-12 h-12">
+                          <svg viewBox="0 0 48 48" className="w-full h-full drop-shadow-sm">
+                            {isWord ? (
+                              <>
+                                <rect x="8" y="4" width="32" height="40" rx="2" fill="#2B579A" />
+                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill="#1C3F6E" />
+                                <rect x="12" y="20" width="24" height="2" rx="1" fill="white" opacity="0.9" />
+                                <rect x="12" y="25" width="24" height="2" rx="1" fill="white" opacity="0.9" />
+                                <rect x="12" y="30" width="18" height="2" rx="1" fill="white" opacity="0.9" />
+                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">W</text>
+                              </>
+                            ) : (
+                              <>
+                                <rect x="8" y="4" width="32" height="40" rx="2" fill="#217346" />
+                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill="#185C37" />
+                                <rect x="12" y="20" width="10" height="6" fill="white" opacity="0.3" />
+                                <rect x="23" y="20" width="10" height="6" fill="white" opacity="0.2" />
+                                <rect x="12" y="27" width="10" height="6" fill="white" opacity="0.2" />
+                                <rect x="23" y="27" width="10" height="6" fill="white" opacity="0.3" />
+                                <rect x="12" y="34" width="10" height="6" fill="white" opacity="0.3" />
+                                <rect x="23" y="34" width="10" height="6" fill="white" opacity="0.2" />
+                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">X</text>
+                              </>
+                            )}
+                          </svg>
+                        </div>
+                        <span className="text-xs text-center leading-tight h-8">
+                          {fileName.replace('.docx', '').replace('.xlsx', '').split(' ').map((word, i, arr) => (
+                            <span key={i}>
+                              {word}
+                              {i < arr.length - 1 && i % 2 === 1 ? <br /> : ' '}
+                            </span>
+                          ))}
+                          {isWord && '.docx'}
+                          {isExcel && '.xlsx'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-4">
+                {/* Folders */}
+                {['Project Files', 'Images', 'Videos', 'Music', 'Work', 'Personal'].map((name, i) => (
+                  <div
+                    key={i}
+                    onClick={() => {
+                      if (name === 'Work') {
+                        onTrackEvent?.('artifact_opened', {
+                          source: 'finder',
+                          artifact_kind: 'folder',
+                          folder_name: name,
+                        }, null, name);
+                        setCurrentFolder('Work');
+                      }
+                    }}
+                    className="flex flex-col items-center gap-2 p-2 hover:bg-blue-100 rounded cursor-pointer"
+                  >
+                    <Folder className="w-12 h-12 text-blue-500" />
+                    <span className="text-xs text-center">{name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (app === 'mail') {
+      return (
+        <div className="flex h-full">
+          {/* Sidebar */}
+          <div className="w-52 bg-gray-100/95 border-r border-gray-300 p-2">
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-gray-600 mb-2 px-2">Mailboxes</div>
+              <div
+                onClick={() => {
+                  onTrackEvent?.('artifact_opened', {
+                    source: 'mail_sidebar',
+                    artifact_kind: 'mailbox',
+                    mailbox: 'inbox',
+                  }, null, 'mailbox_inbox');
+                  setSelectedFolder('inbox');
+                  setIsComposing(false);
+                }}
+                className={`px-2 py-1.5 ${
+                  selectedFolder === 'inbox' ? 'bg-blue-500 text-white' : 'hover:bg-gray-200 text-gray-700'
+                } rounded cursor-pointer text-sm font-medium flex items-center justify-between`}
+              >
+                <span>Inbox</span>
+                <span className={`text-xs ${selectedFolder === 'inbox' ? 'bg-white/20' : 'bg-gray-300'} px-1.5 py-0.5 rounded`}>1</span>
+              </div>
+              <div
+                onClick={() => {
+                  onTrackEvent?.('artifact_opened', {
+                    source: 'mail_sidebar',
+                    artifact_kind: 'mailbox',
+                    mailbox: 'sent',
+                  }, null, 'mailbox_sent');
+                  setSelectedFolder('sent');
+                  setIsComposing(false);
+                }}
+                className={`px-2 py-1.5 ${
+                  selectedFolder === 'sent' ? 'bg-blue-500 text-white' : 'hover:bg-gray-200 text-gray-700'
+                } rounded cursor-pointer text-sm`}
+              >
+                Sent
+              </div>
+              <div className="px-2 py-1.5 hover:bg-gray-200 rounded cursor-pointer text-sm text-gray-700">
+                Drafts
+              </div>
+              <div className="px-2 py-1.5 hover:bg-gray-200 rounded cursor-pointer text-sm text-gray-700">
+                Trash
+              </div>
+            </div>
+          </div>
+
+          {/* Email List */}
+          <div className="w-64 bg-white/95 border-r border-gray-300 overflow-y-auto">
+            {selectedFolder === 'inbox' && (
+              <div className="border-b border-gray-300 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors">
+                <div className="p-3">
+                  <div className="flex items-start justify-between mb-1">
+                    <span className="font-semibold text-sm text-gray-900">Sarah Chen</span>
+                    <span className="text-xs text-gray-500">10:34 AM</span>
+                  </div>
+                  <div className="text-sm font-medium text-gray-800 mb-1">Budget Estimation Reminder</div>
+                  <div className="text-xs text-gray-600 line-clamp-2">Hi, I wanted to follow up on the budget estimation for Q2...</div>
+                </div>
+              </div>
+            )}
+            {selectedFolder === 'sent' && sentEmails.map((email) => (
+              <div key={email.id} className="border-b border-gray-300 hover:bg-blue-50 cursor-pointer transition-colors">
+                <div className="p-3">
+                  <div className="flex items-start justify-between mb-1">
+                    <span className="font-semibold text-sm text-gray-900">To: {email.to}</span>
+                    <span className="text-xs text-gray-500">{email.time}</span>
+                  </div>
+                  <div className="text-sm font-medium text-gray-800 mb-1">{email.subject}</div>
+                  <div className="text-xs text-gray-600 line-clamp-2">{email.body.substring(0, 60)}...</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Email Content */}
+          <div className="flex-1 bg-white/95 overflow-y-auto flex flex-col">
+            {isComposing ? (
+              <div className="p-6 flex flex-col h-full">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                  {replyTo ? 'Reply' : 'New Message'}
+                </h2>
+
+                <div className="space-y-3 flex-1">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">To:</label>
+                    <input
+                      type="text"
+                      value={replyTo}
+                      onChange={(e) => setReplyTo(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="sarah.chen@company.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Subject:</label>
+                    <input
+                      type="text"
+                      value={replySubject}
+                      onChange={(e) => setReplySubject(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter subject"
+                    />
+                  </div>
+
+                  <div className="flex-1 flex flex-col">
+                    <label className="text-sm font-medium text-gray-700">Message:</label>
+                    <textarea
+                      value={replyBody}
+                      onChange={(e) => setReplyBody(e.target.value)}
+                      className="w-full flex-1 mt-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      placeholder="Type your message here..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => {
+                      setIsComposing(false);
+                      setReplyTo('');
+                      setReplySubject('');
+                      setReplyBody('');
+                    }}
+                    className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (replyTo && replySubject && replyBody && onSendEmail) {
+                        onSendEmail(replyTo, replySubject, replyBody);
+                        setIsComposing(false);
+                        setReplyTo('');
+                        setReplySubject('');
+                        setReplyBody('');
+                        setSelectedFolder('sent');
+                      }
+                    }}
+                    disabled={!replyTo || !replySubject || !replyBody}
+                    className="px-6 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            ) : selectedFolder === 'inbox' && (emailId === 'sarah-budget' || true) ? (
+              <div className="p-6 flex flex-col h-full">
+                <div className="flex-1 overflow-y-auto">
+                  <div className="mb-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-3">Budget Estimation Reminder</h2>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold shadow-sm">
+                        SC
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900">Sarah Chen</div>
+                        <div className="text-sm text-gray-600">sarah.chen@company.com</div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-1">To: me</div>
+                    <div className="text-xs text-gray-500">Today at 10:34 AM</div>
+                  </div>
+
+                  <div className="prose prose-sm max-w-none">
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      Hi,
+                    </p>
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      I wanted to follow up on the budget estimation for Q2 that we discussed in last week's meeting. As you know, we need to finalize our projections before the board presentation on Monday.
+                    </p>
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      Could you please have the complete budget breakdown ready by <strong>Sunday evening</strong>? This will give us some buffer time to review everything before the presentation.
+                    </p>
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      The estimation should include:
+                    </p>
+                    <ul className="list-disc list-inside text-gray-800 mb-4 space-y-1">
+                      <li>Marketing and advertising costs</li>
+                      <li>Personnel expenses</li>
+                      <li>Technology infrastructure</li>
+                      <li>Operational overhead</li>
+                    </ul>
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      Let me know if you need any additional resources or data to complete this. I'm available for a quick call if you'd like to discuss any concerns.
+                    </p>
+                    <p className="text-gray-800 leading-relaxed mb-4">
+                      Thanks,<br />
+                      Sarah
+                    </p>
+                    <div className="text-xs text-gray-500 mt-6 pt-4 border-t border-gray-200">
+                      <p className="font-semibold">Sarah Chen</p>
+                      <p>Director of Finance</p>
+                      <p>Company Inc.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => {
+                      onTrackEvent?.('app_opened', {
+                        source: 'mail_reply_button',
+                        action: 'compose_reply',
+                        to: 'sarah.chen@company.com',
+                        subject: 'Re: Budget Estimation Reminder',
+                      });
+                      setIsComposing(true);
+                      setReplyTo('sarah.chen@company.com');
+                      setReplySubject('Re: Budget Estimation Reminder');
+                      setReplyBody('');
+                    }}
+                    className="px-6 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                  >
+                    Reply
+                  </button>
+                </div>
+              </div>
+            ) : selectedFolder === 'sent' && sentEmails.length > 0 ? (
+              <div className="p-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-3">{sentEmails[sentEmails.length - 1].subject}</h2>
+                  <div className="text-xs text-gray-500 mb-1">To: {sentEmails[sentEmails.length - 1].to}</div>
+                  <div className="text-xs text-gray-500">{sentEmails[sentEmails.length - 1].time}</div>
+                </div>
+
+                <div className="prose prose-sm max-w-none">
+                  <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{sentEmails[sentEmails.length - 1].body}</p>
+                  {sentEmails[sentEmails.length - 1].attachments && sentEmails[sentEmails.length - 1].attachments!.length > 0 && (
+                    <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded">
+                      <p className="text-sm font-semibold text-gray-800 mb-2">Attachments:</p>
+                      <div className="space-y-2">
+                        {sentEmails[sentEmails.length - 1].attachments!.map((attachment, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-gray-700">
+                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                            <span>{attachment}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                <div className="text-center">
+                  <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                  </svg>
+                  <p>No message selected</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (app === 'messages') {
+      const channels = [
+        { id: 'general', name: 'general', unread: 0 },
+        { id: 'finance', name: 'finance', unread: 2 },
+        { id: 'engineering', name: 'engineering', unread: 0 },
+        { id: 'random', name: 'random', unread: 1 }
+      ];
+
+      const directMessages = [
+        { id: 'sarah', name: 'Sarah Chen', status: 'online', unread: 1 },
+        { id: 'mike', name: 'Mike Johnson', status: 'away', unread: 0 },
+        { id: 'emma', name: 'Emma Wilson', status: 'online', unread: 0 }
+      ];
+
+      const messages: Record<string, Array<{ sender: string; time: string; text: string; avatar?: string }>> = {
+        'general': [
+          { sender: 'Mike Johnson', time: '9:23 AM', text: 'Good morning team! Don\'t forget about our standup at 10 AM.' },
+          { sender: 'Emma Wilson', time: '9:45 AM', text: 'Thanks for the reminder! I\'ll be there.' },
+          { sender: 'You', time: '9:50 AM', text: 'See you all at 10!' }
+        ],
+        'finance': [
+          { sender: 'Sarah Chen', time: '10:15 AM', text: 'Hey team, I need the Q2 budget estimates by Sunday evening.' },
+          { sender: 'Sarah Chen', time: '10:16 AM', text: 'Please make sure all numbers are verified before submission. The board presentation is Monday morning.' },
+          { sender: 'You', time: '10:34 AM', text: 'Got it, Sarah! I\'m working on it now.' }
+        ],
+        'engineering': [
+          { sender: 'Mike Johnson', time: '11:20 AM', text: 'The new deployment pipeline is ready for testing.' },
+          { sender: 'Emma Wilson', time: '11:22 AM', text: 'Great! I\'ll run some tests this afternoon.' }
+        ],
+        'random': [
+          { sender: 'Emma Wilson', time: '2:15 PM', text: 'Anyone up for coffee? ☕' },
+          { sender: 'Mike Johnson', time: '2:17 PM', text: 'I\'m in! Need a break from debugging.' }
+        ],
+        'sarah': [
+          { sender: 'Sarah Chen', time: '10:34 AM', text: 'Hi! Just wanted to check if you saw my email about the budget estimation.' },
+          { sender: 'You', time: '10:35 AM', text: 'Yes, I did! I\'m working on finalizing the numbers right now.' },
+          { sender: 'Sarah Chen', time: '10:36 AM', text: 'Perfect! Let me know if you need any help or additional data.' }
+        ],
+        'mike': [
+          { sender: 'Mike Johnson', time: 'Yesterday', text: 'Hey, can you review the PR I just submitted?' },
+          { sender: 'You', time: 'Yesterday', text: 'Sure! I\'ll take a look this afternoon.' }
+        ],
+        'emma': [
+          { sender: 'Emma Wilson', time: 'Tuesday', text: 'Thanks for helping with the deployment yesterday!' },
+          { sender: 'You', time: 'Tuesday', text: 'No problem! Happy to help.' }
+        ]
+      };
+
+      const currentMessages = messages[selectedChannel] || [];
+
+      return (
+        <div className="flex h-full bg-white/95">
+          {/* Sidebar */}
+          <div className="w-60 bg-gradient-to-b from-purple-900 to-purple-800 text-white flex flex-col">
+            <div className="p-4 border-b border-purple-700">
+              <h2 className="font-bold text-lg">Company Workspace</h2>
+              <div className="flex items-center gap-2 mt-2 text-sm">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span className="text-purple-200">You</span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {/* Channels */}
+              <div className="mb-4">
+                <div className="text-xs font-semibold text-purple-300 mb-2 px-2">CHANNELS</div>
+                {channels.map((channel) => (
+                  <button
+                    key={channel.id}
+                    onClick={() => setSelectedChannel(channel.id)}
+                    className={`w-full text-left px-2 py-1 rounded flex items-center justify-between group ${
+                      selectedChannel === channel.id ? 'bg-purple-700' : 'hover:bg-purple-700/50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-purple-300">#</span>
+                      <span className={selectedChannel === channel.id ? 'font-semibold' : ''}>{channel.name}</span>
+                    </span>
+                    {channel.unread > 0 && (
+                      <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{channel.unread}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Direct Messages */}
+              <div>
+                <div className="text-xs font-semibold text-purple-300 mb-2 px-2">DIRECT MESSAGES</div>
+                {directMessages.map((dm) => (
+                  <button
+                    key={dm.id}
+                    onClick={() => setSelectedChannel(dm.id)}
+                    className={`w-full text-left px-2 py-1 rounded flex items-center justify-between group ${
+                      selectedChannel === dm.id ? 'bg-purple-700' : 'hover:bg-purple-700/50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <div className="relative">
+                        <div className="w-2 h-2 bg-green-400 rounded-full" style={{ opacity: dm.status === 'online' ? 1 : 0.3 }}></div>
+                      </div>
+                      <span className={selectedChannel === dm.id ? 'font-semibold' : ''}>{dm.name}</span>
+                    </span>
+                    {dm.unread > 0 && (
+                      <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{dm.unread}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Chat Area */}
+          <div className="flex-1 flex flex-col">
+            {/* Chat Header */}
+            <div className="h-14 border-b border-gray-200 flex items-center px-4 bg-white">
+              <div className="flex items-center gap-2">
+                {channels.find(c => c.id === selectedChannel) ? (
+                  <>
+                    <span className="text-gray-600">#</span>
+                    <span className="font-semibold text-gray-900">{channels.find(c => c.id === selectedChannel)?.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded flex items-center justify-center text-white font-semibold text-sm">
+                      {directMessages.find(d => d.id === selectedChannel)?.name.split(' ').map(n => n[0]).join('')}
+                    </div>
+                    <span className="font-semibold text-gray-900">{directMessages.find(d => d.id === selectedChannel)?.name}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 bg-white">
+              <div className="space-y-4">
+                {currentMessages.map((msg, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-gray-500 to-gray-600 rounded flex items-center justify-center text-white font-semibold text-sm shrink-0">
+                      {msg.sender === 'You' ? 'U' : msg.sender.split(' ').map(n => n[0]).join('')}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="font-semibold text-gray-900 text-sm">{msg.sender}</span>
+                        <span className="text-xs text-gray-500">{msg.time}</span>
+                      </div>
+                      <p className="text-gray-800 text-sm leading-relaxed">{msg.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Message Input */}
+            <div className="p-4 border-t border-gray-200 bg-white">
+              <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-lg bg-white">
+                <input
+                  type="text"
+                  placeholder={`Message ${channels.find(c => c.id === selectedChannel) ? '#' + channels.find(c => c.id === selectedChannel)?.name : directMessages.find(d => d.id === selectedChannel)?.name}`}
+                  className="flex-1 outline-none text-sm"
+                />
+                <button className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-center h-full bg-white/95 text-gray-600">
+        <div className="text-center">
+          <div className="text-4xl mb-2">📱</div>
+          <div>{title}</div>
+        </div>
+      </div>
+    );
+  };
+
+  if (isMaximized) {
+    return (
+      <div
+        className="fixed inset-0 bg-white z-[500]"
+        style={{ zIndex }}
+        onMouseDown={onFocus}
+      >
+        {/* Title Bar */}
+        <div className="h-10 bg-gradient-to-b from-gray-200 to-gray-100 border-b border-gray-300 flex items-center justify-between px-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-all shadow-sm hover:shadow-md"
+            />
+            <button
+              onClick={onMinimize}
+              className="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-all shadow-sm hover:shadow-md"
+            />
+            <button
+              onClick={() => toggleMaximized(false)}
+              className="w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-all shadow-sm hover:shadow-md"
+            />
+          </div>
+
+          <div className="absolute left-1/2 -translate-x-1/2 text-sm text-gray-700">
+            {title}
+          </div>
+        </div>
+
+        {/* Window Content */}
+        <div className="h-[calc(100%-2.5rem)]">
+          {renderContent()}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="absolute bg-white/95 backdrop-blur-xl rounded-lg overflow-hidden border border-gray-300/50"
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        zIndex,
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.1)'
+      }}
+      onMouseDown={onFocus}
+    >
+      {/* Title Bar */}
+      <div
+        className="h-10 bg-gradient-to-b from-gray-200 to-gray-100 border-b border-gray-300 flex items-center justify-between px-3 cursor-move shadow-sm"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-all shadow-sm hover:shadow-md"
+          />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onMinimize();
+            }}
+            className="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-all shadow-sm hover:shadow-md"
+          />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleMaximized(true);
+            }}
+            className="w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-all shadow-sm hover:shadow-md"
+          />
+        </div>
+
+        <div className="absolute left-1/2 -translate-x-1/2 text-sm text-gray-700">
+          {title}
+        </div>
+      </div>
+
+      {/* Window Content */}
+      <div className="h-[calc(100%-2.5rem)]">
+        {renderContent()}
+      </div>
+
+      {/* Resize Handles */}
+      {/* Edges */}
+      <div
+        className="absolute top-0 left-0 right-0 h-1 cursor-n-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'n')}
+      />
+      <div
+        className="absolute bottom-0 left-0 right-0 h-1 cursor-s-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 's')}
+      />
+      <div
+        className="absolute top-0 bottom-0 left-0 w-1 cursor-w-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'w')}
+      />
+      <div
+        className="absolute top-0 bottom-0 right-0 w-1 cursor-e-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'e')}
+      />
+      {/* Corners */}
+      <div
+        className="absolute top-0 left-0 w-3 h-3 cursor-nw-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'nw')}
+      />
+      <div
+        className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'ne')}
+      />
+      <div
+        className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'sw')}
+      />
+      <div
+        className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'se')}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,248 @@
+version: episode-rubric-v1
+default_base_score: 50
+description: >
+  Deterministic first-pass rubric for embedded enterprise-agent episodes. The
+  optional LLM grader should explain nuance and suggest rubric improvements,
+  not replace this scoring layer.
+dimensions:
+  accountability:
+    label: Accountability
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - decision_submitted
+        - final_response
+    signals:
+      - id: owns_correction
+        source: message
+        points: 16
+        keywords:
+          - i will own
+          - my responsibility
+          - i am responsible
+          - i will correct
+          - i will notify
+          - document the correction
+          - correction plan
+      - id: documents_stakeholder_followup
+        source: message
+        points: 12
+        keywords:
+          - stakeholder
+          - svp
+          - follow up
+          - audit trail
+          - decision log
+          - correction note
+      - id: hides_behind_ai
+        source: message
+        points: -18
+        keywords:
+          - the ai said
+          - ai told me
+          - not my fault
+          - blame the ai
+          - just send what ai says
+
+  instruction_clarity:
+    label: Instruction Clarity
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - user_message
+        - decision_submitted
+    signals:
+      - id: gives_specific_agent_instruction
+        source: message
+        points: 14
+        keywords:
+          - compare the summary
+          - use the dashboard
+          - check the source
+          - first verify
+          - before sending
+          - specifically
+          - cite the source
+          - show the discrepancy
+      - id: provides_needed_context
+        source: message
+        points: 12
+        keywords:
+          - svp is using this
+          - launch meeting
+          - ten minutes
+          - stakeholder context
+          - decision context
+          - this affects
+      - id: vague_delegation
+        source: message
+        points: -14
+        keywords:
+          - fix it
+          - handle it
+          - do whatever
+          - just make it okay
+          - you decide
+
+  evidence_verification:
+    label: Evidence Verification
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - artifact_opened
+        - user_message
+    signals:
+      - id: opens_source_data
+        source: artifact
+        points: 18
+        artifact_tags:
+          - source-data
+      - id: opens_prior_agent_output
+        source: artifact
+        points: 8
+        artifact_tags:
+          - agent-output
+      - id: asks_for_source
+        source: message
+        points: 14
+        keywords:
+          - source
+          - verify
+          - evidence
+          - dashboard
+          - raw data
+          - audit
+          - check the data
+          - reconcile
+      - id: accepts_without_check
+        source: message
+        points: -16
+        keywords:
+          - no need to check
+          - looks fine
+          - trust the summary
+          - send as is
+
+  uncertainty_recognition:
+    label: Uncertainty Recognition
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - user_message
+        - final_response
+    signals:
+      - id: names_uncertainty
+        source: message
+        points: 14
+        keywords:
+          - uncertainty
+          - uncertain
+          - confidence
+          - assumption
+          - assumptions
+          - limitation
+          - missing information
+          - what don't we know
+      - id: asks_what_changed
+        source: message
+        points: 10
+        keywords:
+          - what changed
+          - why is there a mismatch
+          - why did this differ
+          - what caused the discrepancy
+      - id: treats_number_as_certain
+        source: message
+        points: -14
+        keywords:
+          - exact enough
+          - certain enough
+          - no uncertainty
+          - ignore the confidence
+
+  trust_calibration:
+    label: Trust Calibration
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - user_message
+        - artifact_opened
+    signals:
+      - id: verifies_before_acting
+        source: message
+        points: 14
+        keywords:
+          - do not send until verified
+          - verify before
+          - human review
+          - independent check
+          - validate before
+      - id: uses_agent_as_input
+        source: message
+        points: 10
+        keywords:
+          - help me understand
+          - show me options
+          - summarize the tradeoff
+          - draft but i will review
+      - id: blind_deference
+        source: message
+        points: -18
+        keywords:
+          - whatever you recommend
+          - just decide for me
+          - i trust you completely
+          - no review needed
+
+  anchoring_persuasion_resistance:
+    label: Anchoring / Persuasion Resistance
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - user_message
+        - final_response
+    signals:
+      - id: slows_down_under_pressure
+        source: message
+        points: 14
+        keywords:
+          - pause
+          - slow down
+          - despite the time pressure
+          - not rush
+          - before the meeting
+          - verify first
+      - id: yields_to_urgency
+        source: message
+        points: -14
+        keywords:
+          - no time to check
+          - send it now
+          - too late to verify
+          - just move fast
+
+  multi_agent_synthesis:
+    label: Multi-Agent Synthesis
+    base_score: 50
+    opportunity_rules:
+      event_types:
+        - user_message
+    signals:
+      - id: requests_specialist_comparison
+        source: message
+        points: 14
+        keywords:
+          - finance agent
+          - risk agent
+          - compare agents
+          - ask another agent
+          - second agent
+          - independent agent
+      - id: asks_synthesis
+        source: message
+        points: 10
+        keywords:
+          - synthesize
+          - reconcile
+          - compare both
+          - conflicting recommendations

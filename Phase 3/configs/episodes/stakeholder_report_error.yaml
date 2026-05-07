@@ -1,0 +1,257 @@
+episode_id: stakeholder_report_error_v1
+title: The Escalated Metrics Error
+description: >
+  A workplace episode where an embedded enterprise agent has already summarized
+  launch-readiness metrics, the summary was sent to a senior stakeholder, and a
+  critical number now appears wrong.
+version: 2026-04-v1
+status: review_ready
+research_focus:
+  - accountability
+  - instruction_clarity
+  - evidence_verification
+  - uncertainty_recognition
+  - trust_calibration
+participant_context: >
+  You are supporting a cross-functional planning meeting. Earlier today, your
+  enterprise AI assistant prepared a launch-readiness summary from internal
+  dashboards and sent it to a senior stakeholder after you approved the draft.
+  The stakeholder is now using that summary in a meeting that starts in ten
+  minutes.
+user_task: >
+  Work with the AI assistant and the available artifacts to decide how to
+  respond. Your final response should explain what you checked, what you believe
+  happened, and what you would send or say next.
+completion_criteria:
+  - Open or ask about the relevant source material before making the final call.
+  - Resolve the discrepancy between the AI summary and the source dashboard.
+  - Own the stakeholder follow-up rather than attributing the decision to AI.
+agent_profile:
+  agent_id: mira_enterprise_assistant
+  display_name: Mira
+  role: Enterprise AI assistant
+  description: >
+    Mira helps prepare summaries and can reference the simulated email thread,
+    launch dashboard, and prior agent output in this episode.
+  connected_systems:
+    - Outlook mailbox
+    - Launch readiness dashboard
+    - Finance metrics workbook
+    - Team chat history
+  capabilities:
+    - summarize visible enterprise artifacts
+    - compare prior agent output against source data
+    - draft stakeholder follow-up messages
+    - state confidence and known limitations
+  boundaries:
+    - cannot know unstated business context unless the participant provides it
+    - cannot change already-sent stakeholder messages
+    - should not claim certainty when source records conflict
+artifacts:
+  - artifact_id: email_stakeholder_reply
+    title: Stakeholder Reply
+    kind: email
+    summary: The SVP's chief of staff flags that the incident-risk number may be wrong.
+    content: >
+      Subject: Re: Launch readiness summary
+
+      The summary says the projected incident-risk exposure is 3%, but the
+      dashboard screenshot Priya sent me shows 13%. The SVP is about to use this
+      in the readiness meeting. Can you confirm which number is right?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - stakeholder-message
+      - pressure
+      - discrepancy
+    metadata:
+      urgency_minutes: 10
+  - artifact_id: prior_agent_summary
+    title: Mira's Sent Summary
+    kind: document
+    summary: The AI-generated summary that was approved and sent earlier.
+    content: >
+      Launch-readiness summary: adoption signals remain strong, open support
+      issues are within tolerance, and projected incident-risk exposure is 3%.
+      Recommendation: proceed with launch and monitor closely.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - agent-output
+      - sent-summary
+      - discrepancy
+    metadata:
+      sent_to: SVP readiness distribution
+  - artifact_id: launch_readiness_dashboard
+    title: Launch Readiness Dashboard Excerpt
+    kind: dashboard
+    summary: Source dashboard excerpt for the launch-readiness packet.
+    content: >
+      Launch readiness dashboard, refreshed 8:45 AM:
+      - Adoption readiness: 82%
+      - Support queue variance: +4%
+      - Projected incident-risk exposure: 13%
+      - Confidence note: incident-risk estimate is moderate confidence because
+        two regional telemetry feeds were delayed overnight.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - source-data
+      - dashboard
+      - confidence
+      - discrepancy
+    metadata:
+      refreshed_at: "2026-04-29T08:45:00-07:00"
+  - artifact_id: telemetry_delay_note
+    title: Telemetry Delay Note
+    kind: system_note
+    summary: Internal note explaining why the dashboard confidence is not high.
+    content: >
+      Overnight telemetry from West and EMEA regions arrived 47 minutes late.
+      Risk projection should be treated as moderate confidence until the feeds
+      reconcile at noon.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - source-data
+      - uncertainty
+      - limitation
+    metadata:
+      confidence: moderate
+  - artifact_id: evaluator_key
+    title: Evaluator Key
+    kind: system_note
+    summary: Hidden scoring key for reviewers.
+    content: >
+      Ground truth: Mira's sent summary hallucinated or mistranscribed the
+      projected incident-risk exposure as 3%. The source dashboard says 13%.
+      Strong participant behavior includes checking the dashboard, asking Mira
+      to reconcile the mismatch, noting moderate confidence, and owning the
+      correction to the stakeholder.
+    participant_visible: false
+    agent_visible: false
+    evaluator_visible: true
+    tags:
+      - evaluator-only
+      - ground-truth
+timeline:
+  - event_id: prelude_manager_request
+    sequence: 1
+    channel: email
+    actor: Manager
+    title: Initial Request
+    content: >
+      Please use Mira to summarize the launch-readiness packet for the SVP
+      readiness meeting. Keep it short. They mainly need risk exposure and a
+      proceed/delay recommendation.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: prelude_agent_summary
+    sequence: 2
+    channel: agent_chat
+    actor: Mira
+    title: AI Summary Draft
+    content: >
+      I prepared the summary. It says projected incident-risk exposure is 3% and
+      recommends proceeding with launch while monitoring.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: prelude_user_approval
+    sequence: 3
+    channel: agent_chat
+    actor: You
+    title: User Approval
+    content: >
+      Looks good. Send it to the SVP readiness distribution.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: prelude_stakeholder_flags_error
+    sequence: 4
+    channel: email
+    actor: SVP Chief of Staff
+    title: Error Flag
+    content: >
+      The summary says 3%, but the dashboard screenshot says 13%. The SVP is
+      about to cite this. Which number is right?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+scoring_moments:
+  - moment_id: source_check
+    title: Checks evidence before responding
+    dimension_ids:
+      - evidence_verification
+      - trust_calibration
+    trigger: Participant opens source dashboard or asks Mira to verify against source data.
+    strong_behavior:
+      - Opens the dashboard or asks for raw/source data.
+      - Compares prior AI summary against the dashboard.
+    weak_behavior:
+      - Accepts the sent summary without checking source material.
+  - moment_id: correction_ownership
+    title: Owns stakeholder correction
+    dimension_ids:
+      - accountability
+      - trust_calibration
+    trigger: Participant decides what to say to the stakeholder.
+    strong_behavior:
+      - States that they will correct the record and own the follow-up.
+      - Documents what changed and why.
+    weak_behavior:
+      - Blames the AI or hides behind the AI recommendation.
+  - moment_id: instruction_quality
+    title: Gives the agent clear instructions
+    dimension_ids:
+      - instruction_clarity
+      - uncertainty_recognition
+    trigger: Participant asks Mira for help.
+    strong_behavior:
+      - Gives specific instructions about what to compare, cite, or draft.
+      - Provides time/stakeholder context.
+    weak_behavior:
+      - Says only "fix it" or delegates the judgment back to the agent.
+  - moment_id: uncertainty_handling
+    title: Recognizes confidence limits
+    dimension_ids:
+      - uncertainty_recognition
+      - anchoring_persuasion_resistance
+    trigger: Participant notices telemetry delay and moderate-confidence note.
+    strong_behavior:
+      - Mentions moderate confidence and delayed feeds.
+      - Avoids overstating certainty under time pressure.
+    weak_behavior:
+      - Treats either number as certain without acknowledging limitations.
+hidden_ground_truth:
+  hallucinated_value: "3%"
+  source_value: "13%"
+  correct_resolution: >
+    The source dashboard should be treated as the authoritative number for the
+    immediate stakeholder correction, while noting that confidence is moderate
+    until delayed telemetry feeds reconcile.
+  advisor_feedback:
+    - The episode should reward evidence-seeking process, not simply saying "13%".
+    - The participant should own the correction because they approved the sent summary.
+agent_response_contract:
+  style: >
+    Mira should be concise, transparent about the mismatch, and willing to cite
+    the available source artifacts. Mira should not invent new records.
+  if_user_asks_to_verify: >
+    Acknowledge that the sent summary used 3%, the dashboard says 13%, and the
+    dashboard is the stronger source for immediate correction.
+  if_user_blames_ai: >
+    Do not accept blame as a way for the participant to avoid accountability.
+    Encourage a correction note that owns the process.
+metadata:
+  advisor_alignment:
+    wendy: accountability and vague-human-instruction gap
+    andriana: embedded enterprise context with prior agent activity and artifacts
+  implementation_level:
+    - level_1_rich_packet
+    - level_2_optional_llm_grader
