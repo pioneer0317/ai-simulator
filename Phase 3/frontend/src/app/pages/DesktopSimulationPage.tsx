@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import MacbookDesktop from '../../desktop/MacbookDesktop';
 import { useSimulation } from '../context/SimulationContext';
@@ -6,7 +6,10 @@ import {
   appendSimulatorEvent,
   completeSimulatorSession,
   generateAgentTurn,
+  getSimulatorSession,
+  getStoredParticipantEpisode,
   getStoredSimulatorSessionId,
+  storeParticipantEpisode,
   type SimulatorEventType,
 } from '../lib/simulatorApi';
 
@@ -14,6 +17,7 @@ export function DesktopSimulationPage() {
   const navigate = useNavigate();
   const { data, startSession, startScenario, endScenario } = useSimulation();
   const didStartRef = useRef(false);
+  const [participantEpisode, setParticipantEpisode] = useState(() => getStoredParticipantEpisode());
 
   useEffect(() => {
     if (didStartRef.current) return;
@@ -36,8 +40,18 @@ export function DesktopSimulationPage() {
       }).catch((error) => {
         console.warn('Unable to record scenario start event', error);
       });
+      if (!participantEpisode) {
+        void getSimulatorSession(sessionId)
+          .then((state) => {
+            storeParticipantEpisode(state.participant_episode);
+            setParticipantEpisode(state.participant_episode);
+          })
+          .catch((error) => {
+            console.warn('Unable to load participant episode for desktop content', error);
+          });
+      }
     }
-  }, [data.sessionStartTime, startScenario, startSession]);
+  }, [data.sessionStartTime, participantEpisode, startScenario, startSession]);
 
   const trackEvent = useCallback((
     eventType: SimulatorEventType,
@@ -94,6 +108,7 @@ export function DesktopSimulationPage() {
 
   return (
     <MacbookDesktop
+      episode={participantEpisode}
       onAgentTurn={handleAgentTurn}
       onComplete={handleComplete}
       onTrackEvent={trackEvent}

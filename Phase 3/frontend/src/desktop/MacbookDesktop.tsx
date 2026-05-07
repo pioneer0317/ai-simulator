@@ -5,8 +5,8 @@ import { AgentChat } from './components/agent-chat';
 import { Notification } from './components/notification';
 import { FilePicker } from './components/file-picker';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
-import { useState, useEffect } from 'react';
-import type { SimulatorEventType } from '../app/lib/simulatorApi';
+import { useMemo, useState, useEffect } from 'react';
+import type { EpisodeArtifact, ParticipantEpisode, SimulatorEventType } from '../app/lib/simulatorApi';
 
 interface WindowState {
   id: string;
@@ -27,7 +27,32 @@ interface NotificationState {
   type?: 'email' | 'agent';
 }
 
+export interface DesktopScenarioFile {
+  artifactId: string;
+  fileName: string;
+  title: string;
+  kind: EpisodeArtifact['kind'];
+  summary: string;
+  content: string;
+  tags: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface DesktopMailMessage {
+  emailId: string;
+  senderName: string;
+  senderEmail: string;
+  senderInitials: string;
+  subject: string;
+  preview: string;
+  body: string;
+  time: string;
+  replyTo: string;
+  replySubject: string;
+}
+
 interface MacbookDesktopProps {
+  episode?: ParticipantEpisode | null;
   onComplete?: () => void;
   onAgentTurn?: (
     message: string,
@@ -42,7 +67,8 @@ interface MacbookDesktopProps {
   ) => void;
 }
 
-export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }: MacbookDesktopProps) {
+export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTrackEvent }: MacbookDesktopProps) {
+  const desktopScenario = useMemo(() => buildDesktopScenario(episode), [episode]);
   const [windows, setWindows] = useState<WindowState[]>([]);
   const [maxZIndex, setMaxZIndex] = useState(101);
   const [agentWindow, setAgentWindow] = useState({
@@ -56,10 +82,7 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
   const [agentInitialMessage, setAgentInitialMessage] = useState<string | undefined>(undefined);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [filePickerFiles, setFilePickerFiles] = useState<string[]>([]);
-  const [workFiles, setWorkFiles] = useState<string[]>([
-    'Q2 Budget Proposal.docx',
-    'Budget Estimation Draft.xlsx'
-  ]);
+  const [workFiles, setWorkFiles] = useState<string[]>(desktopScenario.files.map((file) => file.fileName));
   const [sentEmails, setSentEmails] = useState<Array<{
     id: string;
     to: string;
@@ -72,6 +95,12 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
   const [showFloatingButtonOnHover, setShowFloatingButtonOnHover] = useState(false);
 
   useEffect(() => {
+    if (desktopScenario.files.length > 0) {
+      setWorkFiles(desktopScenario.files.map((file) => file.fileName));
+    }
+  }, [desktopScenario.files]);
+
+  useEffect(() => {
     // Show initial email notification after 3 seconds
     const emailTimer = setTimeout(() => {
       const now = new Date();
@@ -79,18 +108,18 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
 
       setNotifications([{
         id: 'email-1',
-        title: 'Budget Estimation Reminder',
-        sender: 'Sarah Chen',
-        preview: 'Hi, I wanted to follow up on the budget estimation for Q2 that we discussed in last week\'s meeting...',
+        title: desktopScenario.mail.subject,
+        sender: desktopScenario.mail.senderName,
+        preview: desktopScenario.mail.preview,
         time: timeString,
-        emailId: 'sarah-budget',
+        emailId: desktopScenario.mail.emailId,
         type: 'email'
       }]);
       onTrackEvent?.('notification_shown', {
         notification_id: 'email-1',
         notification_type: 'email',
-        sender: 'Sarah Chen',
-        title: 'Budget Estimation Reminder',
+        sender: desktopScenario.mail.senderName,
+        title: desktopScenario.mail.subject,
       });
     }, 3000);
 
@@ -101,17 +130,17 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
 
       setNotifications(prev => [...prev, {
         id: 'agent-1',
-        title: 'AI Assistant',
-        sender: 'Assistant',
-        preview: 'I noticed an email from Sarah Chen about the Q2 budget estimation that needs to be finalized by Sunday. Would you like me to help you review and complete the documents?',
+        title: desktopScenario.agentName,
+        sender: desktopScenario.agentName,
+        preview: desktopScenario.agentNotification,
         time: timeString,
         type: 'agent'
       }]);
       onTrackEvent?.('notification_shown', {
         notification_id: 'agent-1',
         notification_type: 'agent',
-        sender: 'Assistant',
-        title: 'AI Assistant',
+        sender: desktopScenario.agentName,
+        title: desktopScenario.agentName,
       });
     }, 13000);
 
@@ -119,7 +148,7 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
       clearTimeout(emailTimer);
       clearTimeout(agentTimer);
     };
-  }, [onTrackEvent]);
+  }, [desktopScenario, onTrackEvent]);
 
   const handleOpenApp = (appName: string) => {
     onTrackEvent?.('app_opened', {
@@ -446,8 +475,8 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
       <div className="flex-1 relative z-10 p-4">
         {windows.map(window => (
           !window.isMinimized && (
-            <Window
-              key={window.id}
+      <Window
+        key={window.id}
               id={window.id}
               title={window.title}
               app={window.app}
@@ -456,8 +485,10 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
               onMinimize={() => handleMinimizeWindow(window.id)}
               onFocus={() => bringToFront(window.id)}
               emailId={window.emailId}
-              onMaximizeChange={(maximized) => handleWindowMaximizeChange(window.id, maximized)}
-              workFiles={workFiles}
+        onMaximizeChange={(maximized) => handleWindowMaximizeChange(window.id, maximized)}
+        scenarioFiles={desktopScenario.files}
+        mailMessage={desktopScenario.mail}
+        workFiles={workFiles}
               sentEmails={sentEmails}
               onSendEmail={handleSendEmail}
               onTrackEvent={onTrackEvent}
@@ -539,6 +570,7 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
             setShowFilePicker(false);
           }}
           selectedFiles={filePickerFiles}
+          availableFiles={workFiles}
           initialPosition={{ x: window.innerWidth - 1070, y: 60 }}
         />
       )}
@@ -623,4 +655,120 @@ export default function MacbookDesktop({ onAgentTurn, onComplete, onTrackEvent }
       )}
     </div>
   );
+}
+
+function buildDesktopScenario(episode?: ParticipantEpisode | null) {
+  if (!episode) {
+    return {
+      agentName: 'AI Assistant',
+      agentNotification: 'I noticed a workplace message that needs review. Would you like help checking the files and drafting a response?',
+      mail: {
+        emailId: 'fallback-email',
+        senderName: 'Sarah Chen',
+        senderEmail: 'sarah.chen@company.com',
+        senderInitials: 'SC',
+        subject: 'Budget Estimation Reminder',
+        preview: 'Hi, I wanted to follow up on the budget estimation for Q2...',
+        body: 'Hi,\n\nI wanted to follow up on the budget estimation for Q2 that we discussed in last week\'s meeting.',
+        time: '10:34 AM',
+        replyTo: 'sarah.chen@company.com',
+        replySubject: 'Re: Budget Estimation Reminder',
+      },
+      files: [
+        fallbackFile('Q2 Budget Proposal.docx', 'document'),
+        fallbackFile('Budget Estimation Draft.xlsx', 'dashboard'),
+      ],
+    };
+  }
+
+  const participantArtifacts = episode.artifacts.filter((artifact) => artifact.participant_visible);
+  const mailArtifact = participantArtifacts.find((artifact) => artifact.kind === 'email');
+  const timelineEmail = [...episode.timeline]
+    .filter((event) => event.participant_visible && event.channel === 'email')
+    .sort((a, b) => b.sequence - a.sequence)[0];
+  const mailBody = stripSubject(mailArtifact?.content ?? timelineEmail?.content ?? episode.participant_context);
+  const subject = extractSubject(mailArtifact?.content) ?? mailArtifact?.title ?? timelineEmail?.title ?? episode.title;
+  const senderName = timelineEmail?.actor ?? 'Stakeholder';
+  const senderEmail = emailForSender(senderName);
+
+  return {
+    agentName: episode.agent_profile.display_name || 'AI Assistant',
+    agentNotification: `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`,
+    mail: {
+      emailId: mailArtifact?.artifact_id ?? timelineEmail?.event_id ?? 'episode-email',
+      senderName,
+      senderEmail,
+      senderInitials: initials(senderName),
+      subject,
+      preview: firstSentence(mailBody),
+      body: mailBody,
+      time: 'Today',
+      replyTo: senderEmail,
+      replySubject: subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`,
+    },
+    files: participantArtifacts
+      .filter((artifact) => artifact.kind !== 'email')
+      .map((artifact) => fileFromArtifact(artifact)),
+  };
+}
+
+function fileFromArtifact(artifact: EpisodeArtifact): DesktopScenarioFile {
+  return {
+    artifactId: artifact.artifact_id,
+    fileName: `${artifact.title}${extensionForKind(artifact.kind)}`,
+    title: artifact.title,
+    kind: artifact.kind,
+    summary: artifact.summary,
+    content: artifact.content,
+    tags: artifact.tags,
+    metadata: artifact.metadata,
+  };
+}
+
+function fallbackFile(fileName: string, kind: EpisodeArtifact['kind']): DesktopScenarioFile {
+  return {
+    artifactId: fileName,
+    fileName,
+    title: fileName.replace(/\.(docx|xlsx|txt)$/i, ''),
+    kind,
+    summary: 'Fallback Figma Make prototype file.',
+    content: 'Fallback desktop content shown only when the backend episode packet has not loaded.',
+    tags: [],
+    metadata: {},
+  };
+}
+
+function extensionForKind(kind: EpisodeArtifact['kind']) {
+  if (kind === 'dashboard' || kind === 'data_table') return '.xlsx';
+  if (kind === 'system_note' || kind === 'chat_history' || kind === 'policy') return '.txt';
+  return '.docx';
+}
+
+function extractSubject(content?: string) {
+  const match = content?.match(/Subject:\s*(.+)/i);
+  return match?.[1]?.trim();
+}
+
+function stripSubject(content: string) {
+  return content.replace(/^\s*Subject:\s*.+\n+/i, '').trim();
+}
+
+function firstSentence(text: string) {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length <= 96) return compact;
+  return `${compact.slice(0, 93).trim()}...`;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'AI';
+}
+
+function emailForSender(name: string) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/(^\.|\.$)/g, '');
+  return `${slug || 'stakeholder'}@company.com`;
 }

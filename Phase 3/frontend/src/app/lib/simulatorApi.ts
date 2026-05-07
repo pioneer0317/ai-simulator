@@ -1,6 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
 const BACKEND_SESSION_ID_KEY = 'simulator-backend-session-id';
+const BACKEND_PARTICIPANT_EPISODE_KEY = 'simulator-participant-episode';
 const DEFAULT_EPISODE_ID = 'stakeholder_report_error_v1';
 
 export type SimulatorActor = 'participant' | 'agent' | 'system' | 'evaluator';
@@ -47,11 +48,61 @@ export interface StartSessionPayload {
   };
 }
 
+export interface EpisodeArtifact {
+  artifact_id: string;
+  title: string;
+  kind: 'email' | 'document' | 'dashboard' | 'data_table' | 'chat_history' | 'policy' | 'voicemail' | 'system_note';
+  summary: string;
+  content: string;
+  participant_visible: boolean;
+  agent_visible: boolean;
+  evaluator_visible: boolean;
+  tags: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface EpisodeTimelineEvent {
+  event_id: string;
+  sequence: number;
+  channel: string;
+  actor: string;
+  title: string;
+  content: string;
+  participant_visible: boolean;
+  agent_visible: boolean;
+  evaluator_visible: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface ParticipantEpisode {
+  episode_id: string;
+  title: string;
+  description: string;
+  version: string;
+  research_focus: string[];
+  participant_context: string;
+  user_task: string;
+  completion_criteria: string[];
+  agent_profile: {
+    agent_id: string;
+    display_name: string;
+    role: string;
+    description: string;
+    connected_systems: string[];
+    capabilities: string[];
+    boundaries: string[];
+  };
+  artifacts: EpisodeArtifact[];
+  timeline: EpisodeTimelineEvent[];
+  metadata: Record<string, unknown>;
+}
+
 export interface StartSessionResponse {
   session_id: string;
   participant_run_id: string;
   episode_id: string;
   status: string;
+  participant_episode: ParticipantEpisode;
 }
 
 export interface PreQuestionnairePayload {
@@ -123,6 +174,7 @@ export interface SessionStateResponse {
   environment: string;
   status: string;
   participant_profile: AdminSessionSummary['participant_profile'];
+  participant_episode: ParticipantEpisode;
   events: Array<{
     event_id: string;
     event_type: string;
@@ -147,6 +199,7 @@ export async function startSimulatorSession(
     }),
   });
   storeSimulatorSessionId(response.session_id);
+  storeParticipantEpisode(response.participant_episode);
   return response;
 }
 
@@ -235,6 +288,24 @@ export function getStoredSimulatorSessionId(): string | null {
 export function clearStoredSimulatorSession() {
   if (typeof window === 'undefined') return;
   window.sessionStorage.removeItem(BACKEND_SESSION_ID_KEY);
+  window.sessionStorage.removeItem(BACKEND_PARTICIPANT_EPISODE_KEY);
+}
+
+export function storeParticipantEpisode(episode: ParticipantEpisode) {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(BACKEND_PARTICIPANT_EPISODE_KEY, JSON.stringify(episode));
+}
+
+export function getStoredParticipantEpisode(): ParticipantEpisode | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.sessionStorage.getItem(BACKEND_PARTICIPANT_EPISODE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ParticipantEpisode;
+  } catch {
+    window.sessionStorage.removeItem(BACKEND_PARTICIPANT_EPISODE_KEY);
+    return null;
+  }
 }
 
 async function request<T = unknown>(path: string, init: RequestInit): Promise<T> {

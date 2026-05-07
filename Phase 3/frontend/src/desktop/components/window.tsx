@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Minus, Square, X, Folder, HardDrive, File, FileText } from 'lucide-react';
 import type { SimulatorEventType } from '../../app/lib/simulatorApi';
+import type { DesktopMailMessage, DesktopScenarioFile } from '../MacbookDesktop';
 
 interface WindowProps {
   id: string;
@@ -12,6 +13,8 @@ interface WindowProps {
   onFocus: () => void;
   emailId?: string;
   onMaximizeChange?: (maximized: boolean) => void;
+  scenarioFiles?: DesktopScenarioFile[];
+  mailMessage?: DesktopMailMessage;
   workFiles?: string[];
   sentEmails?: Array<{
     id: string;
@@ -30,7 +33,20 @@ interface WindowProps {
   ) => void;
 }
 
-export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, workFiles = [], sentEmails = [], onSendEmail, onTrackEvent }: WindowProps) {
+const fallbackMailMessage: DesktopMailMessage = {
+  emailId: 'fallback-email',
+  senderName: 'Sarah Chen',
+  senderEmail: 'sarah.chen@company.com',
+  senderInitials: 'SC',
+  subject: 'Budget Estimation Reminder',
+  preview: 'Hi, I wanted to follow up on the budget estimation for Q2...',
+  body: 'Hi,\n\nI wanted to follow up on the budget estimation for Q2 that we discussed in last week\'s meeting.',
+  time: '10:34 AM',
+  replyTo: 'sarah.chen@company.com',
+  replySubject: 'Re: Budget Estimation Reminder',
+};
+
+export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, workFiles = [], sentEmails = [], onSendEmail, onTrackEvent }: WindowProps) {
   const [position, setPosition] = useState({ x: Math.random() * 200 + 100, y: Math.random() * 100 + 50 });
   const [size, setSize] = useState({ width: 600, height: 400 });
   const [isDragging, setIsDragging] = useState(false);
@@ -147,6 +163,11 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 
   const renderContent = () => {
     if (app === 'finder') {
+      const selectedScenarioFile = scenarioFiles.find((file) => file.fileName === openDocument);
+      if (selectedScenarioFile) {
+        return renderScenarioFile(selectedScenarioFile, () => setOpenDocument(null));
+      }
+
       // Word Document Viewer
       if (openDocument === 'word') {
         return (
@@ -394,23 +415,28 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                   <span className="font-medium">Work</span>
                 </div>
                 <div className="grid grid-cols-4 gap-4">
-                  {workFiles.map((fileName, index) => {
-                    const isWord = fileName.endsWith('.docx');
-                    const isExcel = fileName.endsWith('.xlsx');
-                    const isFinalBudget = fileName === 'Q2_Budget_Final.xlsx';
+	                  {workFiles.map((fileName, index) => {
+	                    const isWord = fileName.endsWith('.docx');
+	                    const isExcel = fileName.endsWith('.xlsx');
+	                    const isText = fileName.endsWith('.txt');
+	                    const isFinalBudget = fileName === 'Q2_Budget_Final.xlsx';
+	                    const scenarioFile = scenarioFiles.find((file) => file.fileName === fileName);
 
-                    return (
+	                    return (
                       <div
                         key={index}
                         onClick={() => {
                           onTrackEvent?.('artifact_opened', {
                             source: 'finder',
                             artifact_kind: isExcel ? 'spreadsheet' : 'document',
-                            file_name: fileName,
-                          }, null, fileName);
-                          if (fileName === 'Q2 Budget Proposal.docx') {
-                            setOpenDocument('word');
-                          } else if (fileName === 'Budget Estimation Draft.xlsx') {
+	                            file_name: fileName,
+	                            artifact_id: scenarioFile?.artifactId,
+	                          }, null, scenarioFile?.artifactId ?? fileName);
+	                          if (scenarioFile) {
+	                            setOpenDocument(fileName);
+	                          } else if (fileName === 'Q2 Budget Proposal.docx') {
+	                            setOpenDocument('word');
+	                          } else if (fileName === 'Budget Estimation Draft.xlsx') {
                             setOpenDocument('excel');
                           } else if (isFinalBudget) {
                             setOpenDocument('final-budget');
@@ -420,15 +446,15 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                       >
                         <div className="relative w-12 h-12">
                           <svg viewBox="0 0 48 48" className="w-full h-full drop-shadow-sm">
-                            {isWord ? (
-                              <>
-                                <rect x="8" y="4" width="32" height="40" rx="2" fill="#2B579A" />
-                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill="#1C3F6E" />
-                                <rect x="12" y="20" width="24" height="2" rx="1" fill="white" opacity="0.9" />
-                                <rect x="12" y="25" width="24" height="2" rx="1" fill="white" opacity="0.9" />
-                                <rect x="12" y="30" width="18" height="2" rx="1" fill="white" opacity="0.9" />
-                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">W</text>
-                              </>
+	                            {isWord || isText ? (
+	                              <>
+	                                <rect x="8" y="4" width="32" height="40" rx="2" fill={isText ? '#64748B' : '#2B579A'} />
+	                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill={isText ? '#475569' : '#1C3F6E'} />
+	                                <rect x="12" y="20" width="24" height="2" rx="1" fill="white" opacity="0.9" />
+	                                <rect x="12" y="25" width="24" height="2" rx="1" fill="white" opacity="0.9" />
+	                                <rect x="12" y="30" width="18" height="2" rx="1" fill="white" opacity="0.9" />
+	                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">{isText ? 'T' : 'W'}</text>
+	                              </>
                             ) : (
                               <>
                                 <rect x="8" y="4" width="32" height="40" rx="2" fill="#217346" />
@@ -445,15 +471,16 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                           </svg>
                         </div>
                         <span className="text-xs text-center leading-tight h-8">
-                          {fileName.replace('.docx', '').replace('.xlsx', '').split(' ').map((word, i, arr) => (
+	                          {fileName.replace('.docx', '').replace('.xlsx', '').replace('.txt', '').split(' ').map((word, i, arr) => (
                             <span key={i}>
                               {word}
                               {i < arr.length - 1 && i % 2 === 1 ? <br /> : ' '}
                             </span>
                           ))}
-                          {isWord && '.docx'}
-                          {isExcel && '.xlsx'}
-                        </span>
+	                          {isWord && '.docx'}
+	                          {isExcel && '.xlsx'}
+	                          {isText && '.txt'}
+	                        </span>
                       </div>
                     );
                   })}
@@ -509,8 +536,8 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                   selectedFolder === 'inbox' ? 'bg-blue-500 text-white' : 'hover:bg-gray-200 text-gray-700'
                 } rounded cursor-pointer text-sm font-medium flex items-center justify-between`}
               >
-                <span>Inbox</span>
-                <span className={`text-xs ${selectedFolder === 'inbox' ? 'bg-white/20' : 'bg-gray-300'} px-1.5 py-0.5 rounded`}>1</span>
+	                <span>Inbox</span>
+	                <span className={`text-xs ${selectedFolder === 'inbox' ? 'bg-white/20' : 'bg-gray-300'} px-1.5 py-0.5 rounded`}>1</span>
               </div>
               <div
                 onClick={() => {
@@ -539,17 +566,17 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 
           {/* Email List */}
           <div className="w-64 bg-white/95 border-r border-gray-300 overflow-y-auto">
-            {selectedFolder === 'inbox' && (
-              <div className="border-b border-gray-300 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors">
-                <div className="p-3">
-                  <div className="flex items-start justify-between mb-1">
-                    <span className="font-semibold text-sm text-gray-900">Sarah Chen</span>
-                    <span className="text-xs text-gray-500">10:34 AM</span>
-                  </div>
-                  <div className="text-sm font-medium text-gray-800 mb-1">Budget Estimation Reminder</div>
-                  <div className="text-xs text-gray-600 line-clamp-2">Hi, I wanted to follow up on the budget estimation for Q2...</div>
-                </div>
-              </div>
+	            {selectedFolder === 'inbox' && (
+	              <div className="border-b border-gray-300 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors">
+	                <div className="p-3">
+	                  <div className="flex items-start justify-between mb-1">
+	                    <span className="font-semibold text-sm text-gray-900">{mailMessage.senderName}</span>
+	                    <span className="text-xs text-gray-500">{mailMessage.time}</span>
+	                  </div>
+	                  <div className="text-sm font-medium text-gray-800 mb-1">{mailMessage.subject}</div>
+	                  <div className="text-xs text-gray-600 line-clamp-2">{mailMessage.preview}</div>
+	                </div>
+	              </div>
             )}
             {selectedFolder === 'sent' && sentEmails.map((email) => (
               <div key={email.id} className="border-b border-gray-300 hover:bg-blue-50 cursor-pointer transition-colors">
@@ -637,70 +664,45 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                   </button>
                 </div>
               </div>
-            ) : selectedFolder === 'inbox' && (emailId === 'sarah-budget' || true) ? (
-              <div className="p-6 flex flex-col h-full">
-                <div className="flex-1 overflow-y-auto">
-                  <div className="mb-6">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-3">Budget Estimation Reminder</h2>
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold shadow-sm">
-                        SC
-                      </div>
-                      <div>
-                        <div className="font-medium text-gray-900">Sarah Chen</div>
-                        <div className="text-sm text-gray-600">sarah.chen@company.com</div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-500 mb-1">To: me</div>
-                    <div className="text-xs text-gray-500">Today at 10:34 AM</div>
-                  </div>
+	            ) : selectedFolder === 'inbox' && (emailId === mailMessage.emailId || true) ? (
+	              <div className="p-6 flex flex-col h-full">
+	                <div className="flex-1 overflow-y-auto">
+	                  <div className="mb-6">
+	                    <h2 className="text-xl font-semibold text-gray-900 mb-3">{mailMessage.subject}</h2>
+	                    <div className="flex items-center gap-3 mb-4">
+	                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold shadow-sm">
+	                        {mailMessage.senderInitials}
+	                      </div>
+	                      <div>
+	                        <div className="font-medium text-gray-900">{mailMessage.senderName}</div>
+	                        <div className="text-sm text-gray-600">{mailMessage.senderEmail}</div>
+	                      </div>
+	                    </div>
+	                    <div className="text-xs text-gray-500 mb-1">To: me</div>
+	                    <div className="text-xs text-gray-500">{mailMessage.time}</div>
+	                  </div>
 
-                  <div className="prose prose-sm max-w-none">
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      Hi,
-                    </p>
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      I wanted to follow up on the budget estimation for Q2 that we discussed in last week's meeting. As you know, we need to finalize our projections before the board presentation on Monday.
-                    </p>
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      Could you please have the complete budget breakdown ready by <strong>Sunday evening</strong>? This will give us some buffer time to review everything before the presentation.
-                    </p>
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      The estimation should include:
-                    </p>
-                    <ul className="list-disc list-inside text-gray-800 mb-4 space-y-1">
-                      <li>Marketing and advertising costs</li>
-                      <li>Personnel expenses</li>
-                      <li>Technology infrastructure</li>
-                      <li>Operational overhead</li>
-                    </ul>
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      Let me know if you need any additional resources or data to complete this. I'm available for a quick call if you'd like to discuss any concerns.
-                    </p>
-                    <p className="text-gray-800 leading-relaxed mb-4">
-                      Thanks,<br />
-                      Sarah
-                    </p>
-                    <div className="text-xs text-gray-500 mt-6 pt-4 border-t border-gray-200">
-                      <p className="font-semibold">Sarah Chen</p>
-                      <p>Director of Finance</p>
-                      <p>Company Inc.</p>
-                    </div>
-                  </div>
+	                  <div className="prose prose-sm max-w-none">
+	                    <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{mailMessage.body}</p>
+	                    <div className="text-xs text-gray-500 mt-6 pt-4 border-t border-gray-200">
+	                      <p className="font-semibold">{mailMessage.senderName}</p>
+	                      <p>{mailMessage.senderEmail}</p>
+	                    </div>
+	                  </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
                     onClick={() => {
                       onTrackEvent?.('app_opened', {
-                        source: 'mail_reply_button',
-                        action: 'compose_reply',
-                        to: 'sarah.chen@company.com',
-                        subject: 'Re: Budget Estimation Reminder',
-                      });
-                      setIsComposing(true);
-                      setReplyTo('sarah.chen@company.com');
-                      setReplySubject('Re: Budget Estimation Reminder');
+	                        source: 'mail_reply_button',
+	                        action: 'compose_reply',
+	                        to: mailMessage.replyTo,
+	                        subject: mailMessage.replySubject,
+	                      });
+	                      setIsComposing(true);
+	                      setReplyTo(mailMessage.replyTo);
+	                      setReplySubject(mailMessage.replySubject);
                       setReplyBody('');
                     }}
                     className="px-6 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
@@ -1058,6 +1060,53 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
         className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize"
         onMouseDown={(e) => handleResizeMouseDown(e, 'se')}
       />
+    </div>
+  );
+}
+
+function renderScenarioFile(file: DesktopScenarioFile, onBack: () => void) {
+  const isStructuredData = file.kind === 'dashboard' || file.kind === 'data_table';
+  return (
+    <div className="flex h-full flex-col bg-white/95">
+      <div className="flex items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700"
+        >
+          <span>←</span> Back to Work
+        </button>
+        <span className="text-sm font-medium text-gray-700">{file.fileName}</span>
+        <div className="w-20" />
+      </div>
+      <div className="flex-1 overflow-y-auto bg-white p-8">
+        <div className="mx-auto max-w-3xl border border-gray-200 bg-white p-10 shadow-sm">
+          <div className="mb-6 flex items-start gap-4">
+            <div className={`flex h-12 w-12 items-center justify-center rounded-lg text-white ${isStructuredData ? 'bg-emerald-700' : 'bg-slate-700'}`}>
+              {isStructuredData ? <File className="h-6 w-6" /> : <FileText className="h-6 w-6" />}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{file.title}</h1>
+              <p className="mt-1 text-sm text-gray-500">{file.summary}</p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-5">
+            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800">
+              {file.content}
+            </pre>
+          </div>
+
+          {file.tags.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {file.tags.map((tag) => (
+                <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -365,19 +365,33 @@ class EpisodeSessionService:
         """Run deterministic scoring and secondary/fallback LLM review for one session."""
         record = self._get_record(session_id)
         episode = self._episode_loader.get(record.episode_id)
-        deterministic = self._scorer.score(episode=episode, events=record.events)
+        scorable_events = [
+            event for event in record.events if event.event_type != "score_generated"
+        ]
+        deterministic = self._scorer.score(episode=episode, events=scorable_events)
         llm_review = self._llm_grader.review(
             episode=episode,
-            events=record.events,
+            events=scorable_events,
             deterministic=deterministic,
             rubric=self._scorer.rubric,
         )
-        return EpisodeScoringResponse(
+        response = EpisodeScoringResponse(
             session_id=session_id,
             episode_id=record.episode_id,
             deterministic=deterministic,
             llm_review=llm_review,
         )
+        score_event = self._build_event(
+            record=record,
+            event_type="score_generated",
+            actor="evaluator",
+            content=None,
+            artifact_id=None,
+            metadata=response.model_dump(mode="json"),
+        )
+        record.events.append(score_event)
+        self._session_store.save(record)
+        return response
 
     def _get_record(self, session_id: str) -> SessionRecord:
         record = self._session_store.get(session_id)

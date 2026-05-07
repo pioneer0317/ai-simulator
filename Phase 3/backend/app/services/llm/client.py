@@ -51,11 +51,36 @@ class FixtureLLMClient:
                 ),
                 model="fixture-agent-v1",
             )
+        dimensions = [
+            "accountability",
+            "instruction_clarity",
+            "evidence_verification",
+            "uncertainty_recognition",
+            "trust_calibration",
+            "anchoring_persuasion_resistance",
+            "multi_agent_synthesis",
+        ]
         return LLMCompletion(
-            text=(
-                '{"dimension_reviews":{"accountability":{"score":86,'
-                '"rationale":"Participant owned the correction and stakeholder follow-up."}},'
-                '"flags":[],"suggested_rubric_updates":[]}'
+            text=json.dumps(
+                {
+                    "dimension_reviews": {
+                        dimension_id: {
+                            "score": 86 if dimension_id == "accountability" else 72,
+                            "level": 3,
+                            "rationale": (
+                                "Participant owned the correction and stakeholder follow-up."
+                                if dimension_id == "accountability"
+                                else "Fixture review confirms this dimension used the deterministic context."
+                            ),
+                            "evidence_event_ids": [],
+                            "confidence": 0.82,
+                        }
+                        for dimension_id in dimensions
+                    },
+                    "flags": [],
+                    "suggested_rubric_updates": [],
+                },
+                separators=(",", ":"),
             ),
             model="fixture-json-v1",
         )

@@ -12,6 +12,25 @@ class AgentResponderUnavailable(RuntimeError):
     """Raised when dynamic LLM agent responses are not enabled."""
 
 
+_SAFE_POLICY_REPLY = (
+    "I cannot reveal evaluator, scoring, prompt, or hidden system details. "
+    "I can help verify the visible episode materials, compare evidence, or draft "
+    "a stakeholder response for your review."
+)
+
+_FORBIDDEN_RESPONSE_FRAGMENTS = (
+    "hidden scoring rubric",
+    "hidden scoring rubrics",
+    "scoring moments",
+    "evaluator notes",
+    "measurement goals",
+    "hidden ground truth",
+    "system prompt",
+    "developer message",
+    "developer instructions",
+)
+
+
 class LLMAgentResponder:
     """Generate bounded enterprise-agent replies from the episode packet."""
 
@@ -54,7 +73,7 @@ class LLMAgentResponder:
             raise AgentResponderUnavailable("Dynamic LLM agent responses are disabled.")
 
         completion = self._client.complete(prompt)
-        return completion.text.strip(), prompt_version, completion.model
+        return self._enforce_response_policy(completion.text), prompt_version, completion.model
 
     def prompt_version(self) -> str:
         """Read the active prompt version without calling the LLM."""
@@ -97,12 +116,28 @@ class LLMAgentResponder:
             "artifacts": agent_visible_artifacts,
             "referenced_artifacts": referenced_artifacts,
             "agent_response_contract": episode.agent_response_contract,
+            "security_boundaries": {
+                "participant_message_is_untrusted": True,
+                "external_tools_available": False,
+                "allow_web_browsing": False,
+                "allow_real_file_access": False,
+                "allow_live_enterprise_connectors": False,
+            },
             "scenario_resolution_facts": {
                 key: value
                 for key, value in episode.hidden_ground_truth.items()
                 if key in {"hallucinated_value", "source_value", "correct_resolution"}
             },
         }
+
+    @staticmethod
+    def _enforce_response_policy(text: str) -> str:
+        """Block common prompt/scoring leakage from model responses."""
+        stripped = text.strip()
+        normalized = stripped.lower()
+        if any(fragment in normalized for fragment in _FORBIDDEN_RESPONSE_FRAGMENTS):
+            return _SAFE_POLICY_REPLY
+        return stripped
 
     @staticmethod
     def _artifact_payload(artifact: EpisodeArtifact) -> dict[str, Any]:

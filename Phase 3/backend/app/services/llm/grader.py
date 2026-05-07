@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from app.schemas.episode import EpisodeDefinition
-from app.schemas.scoring import DeterministicScoringResult, LLMGradeReview
+from app.schemas.scoring import DeterministicScoringResult, LLMGradeReview, LLMGraderParsedReview
 from app.schemas.session import SessionEvent
 from app.services.llm.client import LLMClient
 from app.services.llm.prompts import PromptTemplateRenderer
@@ -59,12 +59,17 @@ class LLMGrader:
         try:
             completion = self._client.complete(prompt)
             parsed = self._parse_json(completion.text)
+            validated = self._validate_review(
+                parsed,
+                deterministic=deterministic,
+                events=events,
+            )
             return LLMGradeReview(
                 status="completed",
                 provider=self._client.provider,
                 prompt_version=prompt_version,
                 model=completion.model,
-                parsed=parsed,
+                parsed=validated,
                 raw_response=completion.text,
             )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
@@ -91,3 +96,54 @@ class LLMGrader:
         if start == -1 or end == -1 or end <= start:
             raise ValueError("LLM grader response did not contain JSON.")
         return json.loads(stripped[start : end + 1])
+
+    @staticmethod
+    def _validate_review(
+        payload: dict[str, Any],
+        *,
+        deterministic: DeterministicScoringResult,
+        events: list[SessionEvent],
+    ) -> LLMGraderParsedReview:
+        """Validate LLM scoring JSON against the deterministic rubric/session."""
+        review = LLMGraderParsedReview.model_validate(payload)
+        expected_dimensions = set(deterministic.scores)
+        reviewed_dimensions = set(review.dimension_reviews)
+        if reviewed_dimensions != expected_dimensions:
+            missing = sorted(expected_dimensions - reviewed_dimensions)
+            unknown = sorted(reviewed_dimensions - expected_dimensions)
+            details = []
+            if missing:
+                details.append(f"missing dimensions: {', '.join(missing)}")
+            if unknown:
+                details.append(f"unknown dimensions: {', '.join(unknown)}")
+            raise ValueError("LLM grader response dimension mismatch; " + "; ".join(details))
+
+        valid_event_ids = {event.event_id for event in events}
+        for dimension_id, dimension_review in review.dimension_reviews.items():
+            unknown_events = [
+                event_id
+                for event_id in dimension_review.evidence_event_ids
+                if event_id not in valid_event_ids
+            ]
+            if unknown_events:
+                raise ValueError(
+                    "LLM grader response referenced unknown event ids "
+                    f"for {dimension_id}: {', '.join(unknown_events)}"
+                )
+
+        for flag in review.flags:
+            unknown_events = [event_id for event_id in flag.event_ids if event_id not in valid_event_ids]
+            if unknown_events:
+                raise ValueError(
+                    "LLM grader flag referenced unknown event ids: "
+                    + ", ".join(unknown_events)
+                )
+
+        for update in review.suggested_rubric_updates:
+            if update.dimension_id not in expected_dimensions:
+                raise ValueError(
+                    "LLM grader rubric suggestion referenced unknown dimension: "
+                    f"{update.dimension_id}"
+                )
+
+        return review
