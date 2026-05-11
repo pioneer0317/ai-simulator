@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 ArtifactKind = Literal[
@@ -70,6 +70,31 @@ class ScoringMoment(BaseModel):
     weak_behavior: list[str] = Field(default_factory=list)
 
 
+class EpisodeProgression(BaseModel):
+    """Configurable nudge and transition rules for one scenario."""
+
+    target_signals: list[str] = Field(default_factory=list)
+    soft_nudge_after_agent_turns: int = 2
+    strong_nudge_after_agent_turns: int = 4
+    force_progress_after_agent_turns: int = 5
+    soft_nudge_message: str = (
+        "You may want to compare the email with the source file before responding."
+    )
+    strong_nudge_message: str = (
+        "Before moving forward, please review the source file and ask the assistant "
+        "to verify the discrepancy."
+    )
+    force_progress_message: str = (
+        "A new update has arrived. The situation is moving forward based on the "
+        "information available so far."
+    )
+
+    @field_validator("soft_nudge_message", "strong_nudge_message", "force_progress_message")
+    @classmethod
+    def _strip_message(cls, value: str) -> str:
+        return value.strip()
+
+
 class EpisodeDefinition(BaseModel):
     """Full evaluator-safe episode packet loaded from configuration."""
 
@@ -86,6 +111,7 @@ class EpisodeDefinition(BaseModel):
     artifacts: list[EpisodeArtifact] = Field(default_factory=list)
     timeline: list[TimelineEvent] = Field(default_factory=list)
     scoring_moments: list[ScoringMoment] = Field(default_factory=list)
+    progression: EpisodeProgression = Field(default_factory=EpisodeProgression)
     hidden_ground_truth: dict[str, Any] = Field(default_factory=dict)
     agent_response_contract: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)

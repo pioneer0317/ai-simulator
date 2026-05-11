@@ -40,11 +40,20 @@ SIMULATOR_STORAGE_BACKEND=sqlite
 SIMULATOR_DATABASE_URL=sqlite:///simulator-dev.sqlite
 ```
 
-SQLite is the local default recommendation because it is a single file, needs no server, costs nothing, works offline, and is fast enough for QA/advisor testing. The backend writes the same session/event objects through a storage boundary, so a cloud RDS/Postgres implementation can replace the SQLite store later without changing route handlers.
+SQLite is the local default recommendation because it is a single file, needs no server, costs nothing, works offline, and is fast enough for QA/advisor testing.
 
 When the server is offline, the SQLite file remains on disk. Admins can review it with the built-in dashboard while the server is running, export CSV, or open the file with a GUI client such as DB Browser for SQLite, DBeaver, TablePlus, or DataGrip. The main tables are `sessions` and `session_events`.
 
 Do not commit populated `.sqlite` files. They contain local participant/test data. The backend automatically creates the database and tables on startup when `SIMULATOR_STORAGE_BACKEND=sqlite`. A committed blank schema is available at `database/schema.sql` for teams that want to initialize a local database manually.
+
+Cloud runs can persist sessions and event logs to MySQL-compatible RDS:
+
+```bash
+SIMULATOR_STORAGE_BACKEND=mysql
+SIMULATOR_DATABASE_URL=mysql://RDS_USERNAME:RDS_PASSWORD@RDS_ENDPOINT:3306/RDS_DATABASE_NAME
+```
+
+The backend automatically creates the required MySQL tables on startup. Use `.env.cloud-dev.example` for shared cloud QA and `.env.prod.example` for production-style configuration. Keep RDS credentials only in backend/server environment files, never in frontend code or GitHub.
 
 ## Key Endpoints
 
@@ -75,6 +84,7 @@ SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true
 ```
 
 Use `SIMULATOR_APP_ENV=dev` for development/QA testing and `SIMULATOR_APP_ENV=prod` to expose only approved episodes.
+Use `SIMULATOR_STORAGE_BACKEND=sqlite` for local/offline storage and `SIMULATOR_STORAGE_BACKEND=mysql` for MySQL RDS.
 Use `SIMULATOR_LLM_PROVIDER=fixture` for deterministic test completions.
 Use `SIMULATOR_LLM_PROVIDER=gemini`, `SIMULATOR_LLM_API_KEY`, and `SIMULATOR_LLM_MODEL` to call the Gemini Developer API through the native `generateContent` endpoint.
 Use `SIMULATOR_LLM_PROVIDER=chat_completions`, `SIMULATOR_LLM_API_KEY`, `SIMULATOR_LLM_MODEL`, and `SIMULATOR_LLM_BASE_URL` for any provider that exposes a compatible chat-completions API.

@@ -11,6 +11,7 @@ import {
   getStoredSimulatorSessionId,
   storeParticipantEpisode,
   type SimulatorEventType,
+  type ProgressionDecision,
 } from '../lib/simulatorApi';
 
 export function DesktopSimulationPage() {
@@ -75,7 +76,7 @@ export function DesktopSimulationPage() {
     message: string,
     referencedArtifactIds: string[],
     metadata: Record<string, unknown>
-  ) => {
+  ): Promise<{ content: string | null; progression?: ProgressionDecision | null } | null> => {
     const sessionId = getStoredSimulatorSessionId();
     if (!sessionId) return null;
 
@@ -84,7 +85,10 @@ export function DesktopSimulationPage() {
       referenced_artifact_ids: referencedArtifactIds,
       metadata,
     });
-    return response.agent_event?.content ?? response.error ?? null;
+    return {
+      content: response.agent_event?.content ?? response.error ?? null,
+      progression: response.progression ?? null,
+    };
   }, []);
 
   const handleComplete = async () => {

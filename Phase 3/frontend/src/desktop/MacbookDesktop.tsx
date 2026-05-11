@@ -6,7 +6,7 @@ import { Notification } from './components/notification';
 import { FilePicker } from './components/file-picker';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
 import { useMemo, useState, useEffect } from 'react';
-import type { EpisodeArtifact, ParticipantEpisode, SimulatorEventType } from '../app/lib/simulatorApi';
+import type { EpisodeArtifact, ParticipantEpisode, ProgressionDecision, SimulatorEventType } from '../app/lib/simulatorApi';
 
 interface WindowState {
   id: string;
@@ -58,7 +58,7 @@ interface MacbookDesktopProps {
     message: string,
     referencedArtifactIds: string[],
     metadata: Record<string, unknown>
-  ) => Promise<string | null>;
+  ) => Promise<{ content: string | null; progression?: ProgressionDecision | null } | null>;
   onTrackEvent?: (
     eventType: SimulatorEventType,
     metadata?: Record<string, unknown>,
@@ -83,6 +83,7 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [filePickerFiles, setFilePickerFiles] = useState<string[]>([]);
   const [workFiles, setWorkFiles] = useState<string[]>(desktopScenario.files.map((file) => file.fileName));
+  const [isInTransition, setIsInTransition] = useState(false);
   const [sentEmails, setSentEmails] = useState<Array<{
     id: string;
     to: string;
@@ -530,6 +531,7 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
             onClearFiles={() => setFilePickerFiles([])}
             onAddFile={handleAddFile}
             onAgentTurn={onAgentTurn}
+            onTransitionChange={setIsInTransition}
             onSendEmail={handleSendEmail}
             onTrackEvent={onTrackEvent}
           />
@@ -640,14 +642,29 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">
             Research flow
           </div>
+          {isInTransition && (
+            <button
+              onClick={() => {
+                onTrackEvent?.('scenario_completed', {
+                  source: 'next_episode_button',
+                  transition_state: true,
+                });
+                onComplete();
+              }}
+              className="mb-2 w-full rounded-xl bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+            >
+              Next episode
+            </button>
+          )}
           <button
             onClick={() => {
               onTrackEvent?.('scenario_completed', {
                 source: 'research_flow_button',
+                transition_state: isInTransition,
               });
               onComplete();
             }}
-            className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white/90"
+            className="w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white/90"
           >
             Complete episode
           </button>

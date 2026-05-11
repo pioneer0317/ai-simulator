@@ -33,6 +33,8 @@ export type SimulatorEventType =
   | 'user_message'
   | 'agent_message'
   | 'final_response'
+  | 'intervention_shown'
+  | 'phase_changed'
   | 'post_reflection_submitted'
   | 'scenario_completed';
 
@@ -134,6 +136,17 @@ export interface SessionEventPayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface ProgressionDecision {
+  scenario_id: string;
+  agent_turn_count: number;
+  target_signals_met: string[];
+  target_signals_missing: string[];
+  intervention_type: 'none' | 'soft_nudge' | 'strong_nudge' | 'forced_progression';
+  trigger?: string | null;
+  message?: string | null;
+  transition_required: boolean;
+}
+
 export interface AgentTurnResponse {
   session_id: string;
   status: 'completed' | 'fallback' | 'disabled' | 'failed';
@@ -144,6 +157,7 @@ export interface AgentTurnResponse {
     content?: string | null;
     metadata?: Record<string, unknown>;
   } | null;
+  progression?: ProgressionDecision | null;
   error?: string | null;
 }
 

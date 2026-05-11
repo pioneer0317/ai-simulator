@@ -17,4 +17,13 @@ For a blank database without starting the API:
 sqlite3 simulator-dev.sqlite < database/schema.sql
 ```
 
-For production/cloud, use a separate production database target. The same tables are required, but real participant logs should not share the dev database.
+For cloud development or production with MySQL RDS, set:
+
+```bash
+SIMULATOR_STORAGE_BACKEND=mysql
+SIMULATOR_DATABASE_URL=mysql://RDS_USERNAME:RDS_PASSWORD@RDS_ENDPOINT:3306/RDS_DATABASE_NAME
+```
+
+The backend creates the required MySQL tables automatically on startup. A reference schema is available at `database/mysql_schema.sql`.
+
+Use separate database targets for dev and prod. Real participant logs should not share the dev database.

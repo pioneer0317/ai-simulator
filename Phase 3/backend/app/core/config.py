@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "prod"] = "dev"
     api_v1_prefix: str = "/api/v1"
     frontend_origins: list[str] = Field(default_factory=lambda: ["*"])
-    storage_backend: Literal["memory", "sqlite"] = "memory"
+    storage_backend: Literal["memory", "sqlite", "mysql"] = "memory"
     database_url: str | None = None
     episode_config_dir: Path = Field(
         default_factory=lambda: _project_root() / "configs" / "episodes"

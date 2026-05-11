@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Protocol
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from app.schemas.episode import ParticipantEpisode
 from app.schemas.session import ParticipantProfile, SessionEvent
@@ -255,6 +255,202 @@ class SQLiteSessionStore:
         return conn
 
 
+class MySQLSessionStore:
+    """Cloud persistent store for sessions and event logs on MySQL-compatible RDS."""
+
+    backend_name = "mysql"
+
+    def __init__(self, database_url: str) -> None:
+        self._config = _mysql_config(database_url)
+        self._initialize()
+
+    def get(self, session_id: str) -> SessionRecord | None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT session_id, participant_run_id, episode_id, environment, status,
+                           participant_profile_json, participant_episode_json,
+                           started_at, completed_at
+                    FROM sessions
+                    WHERE session_id = %s
+                    """,
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+
+                cursor.execute(
+                    """
+                    SELECT event_json
+                    FROM session_events
+                    WHERE session_id = %s
+                    ORDER BY sequence_index ASC
+                    """,
+                    (session_id,),
+                )
+                event_rows = cursor.fetchall()
+
+        return SessionRecord(
+            session_id=row["session_id"],
+            participant_run_id=row["participant_run_id"] or _fallback_participant_run_id(row["session_id"]),
+            episode_id=row["episode_id"],
+            environment=row["environment"],
+            status=row["status"],
+            participant_profile=ParticipantProfile.model_validate(
+                json.loads(row["participant_profile_json"])
+            ),
+            participant_episode=ParticipantEpisode.model_validate(
+                json.loads(row["participant_episode_json"])
+            ),
+            events=[
+                SessionEvent.model_validate(json.loads(event_row["event_json"]))
+                for event_row in event_rows
+            ],
+            started_at=_parse_datetime(row["started_at"]),
+            completed_at=_parse_datetime(row["completed_at"]),
+        )
+
+    def save(self, record: SessionRecord) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO sessions (
+                        session_id, participant_run_id, episode_id, environment, status,
+                        participant_profile_json, participant_episode_json,
+                        started_at, completed_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        participant_run_id = VALUES(participant_run_id),
+                        episode_id = VALUES(episode_id),
+                        environment = VALUES(environment),
+                        status = VALUES(status),
+                        participant_profile_json = VALUES(participant_profile_json),
+                        participant_episode_json = VALUES(participant_episode_json),
+                        started_at = VALUES(started_at),
+                        completed_at = VALUES(completed_at)
+                    """,
+                    (
+                        record.session_id,
+                        record.participant_run_id,
+                        record.episode_id,
+                        record.environment,
+                        record.status,
+                        _json(record.participant_profile),
+                        _json(record.participant_episode),
+                        _datetime(record.started_at),
+                        _datetime(record.completed_at),
+                    ),
+                )
+                cursor.execute("DELETE FROM session_events WHERE session_id = %s", (record.session_id,))
+                cursor.executemany(
+                    """
+                    INSERT INTO session_events (
+                        event_id, session_id, episode_id, sequence_index,
+                        event_type, actor, artifact_id, created_at, event_json
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            event.event_id,
+                            event.session_id,
+                            event.episode_id,
+                            _sequence_index(position, event),
+                            event.event_type,
+                            event.actor,
+                            event.artifact_id,
+                            _datetime(event.created_at),
+                            _json(event),
+                        )
+                        for position, event in enumerate(record.events)
+                    ],
+                )
+            conn.commit()
+
+    def list(self) -> list[SessionRecord]:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT session_id
+                    FROM sessions
+                    ORDER BY started_at DESC
+                    """
+                )
+                rows = cursor.fetchall()
+
+        records: list[SessionRecord] = []
+        for row in rows:
+            record = self.get(row["session_id"])
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _initialize(self) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id VARCHAR(64) PRIMARY KEY,
+                        participant_run_id VARCHAR(96) NOT NULL,
+                        episode_id VARCHAR(128) NOT NULL,
+                        environment VARCHAR(16) NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        participant_profile_json LONGTEXT NOT NULL,
+                        participant_episode_json LONGTEXT NOT NULL,
+                        started_at VARCHAR(64) NOT NULL,
+                        completed_at VARCHAR(64) NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_events (
+                        event_id VARCHAR(64) PRIMARY KEY,
+                        session_id VARCHAR(64) NOT NULL,
+                        episode_id VARCHAR(128) NOT NULL,
+                        sequence_index INT NOT NULL,
+                        event_type VARCHAR(128) NOT NULL,
+                        actor VARCHAR(32) NOT NULL,
+                        artifact_id VARCHAR(128) NULL,
+                        created_at VARCHAR(64) NOT NULL,
+                        event_json LONGTEXT NOT NULL,
+                        CONSTRAINT fk_session_events_session
+                            FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                            ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    """
+                )
+                _ensure_mysql_index(cursor, "session_events", "idx_session_events_session_sequence", "session_id, sequence_index")
+                _ensure_mysql_index(cursor, "session_events", "idx_session_events_type_created", "event_type, created_at")
+            conn.commit()
+
+    def _connect(self):
+        try:
+            import pymysql
+            from pymysql.cursors import DictCursor
+        except ImportError as exc:  # pragma: no cover - dependency guard
+            raise RuntimeError(
+                "PyMySQL is required for SIMULATOR_STORAGE_BACKEND=mysql. "
+                "Install backend dependencies from pyproject.toml."
+            ) from exc
+
+        return pymysql.connect(
+            host=self._config["host"],
+            port=self._config["port"],
+            user=self._config["user"],
+            password=self._config["password"],
+            database=self._config["database"],
+            cursorclass=DictCursor,
+            charset="utf8mb4",
+        )
+
+
 def _sqlite_path(database_url: str) -> Path:
     if not database_url.startswith("sqlite:///"):
         raise ValueError("SQLiteSessionStore requires a sqlite:/// database URL.")
@@ -268,6 +464,22 @@ def _sqlite_path(database_url: str) -> Path:
     return path.expanduser().resolve()
 
 
+def _mysql_config(database_url: str) -> dict[str, str | int]:
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql"}:
+        raise ValueError("MySQLSessionStore requires a mysql:// or mysql+pymysql:// database URL.")
+    database = parsed.path.lstrip("/")
+    if not parsed.hostname or not parsed.username or not database:
+        raise ValueError("MySQL database URL must include username, host, and database name.")
+    return {
+        "host": parsed.hostname,
+        "port": parsed.port or 3306,
+        "user": unquote(parsed.username),
+        "password": unquote(parsed.password or ""),
+        "database": unquote(database),
+    }
+
+
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
     columns = {
         row["name"]
@@ -275,6 +487,12 @@ def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, 
     }
     if column_name not in columns:
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def _ensure_mysql_index(cursor, table_name: str, index_name: str, columns: str) -> None:
+    cursor.execute(f"SHOW INDEX FROM {table_name} WHERE Key_name = %s", (index_name,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"CREATE INDEX {index_name} ON {table_name} ({columns})")
 
 
 def _fallback_participant_run_id(session_id: str) -> str:

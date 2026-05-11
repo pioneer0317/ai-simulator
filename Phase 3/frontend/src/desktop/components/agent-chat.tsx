@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import svgPaths from '../../imports/ConversationTemplateMobile/svg-1a0rrom8ov';
-import type { SimulatorEventType } from '../../app/lib/simulatorApi';
+import type { ProgressionDecision, SimulatorEventType } from '../../app/lib/simulatorApi';
+
+type ChatMessage = {
+  role: 'user' | 'agent';
+  content: string;
+  variant?: 'normal' | 'nudge' | 'transition';
+};
 
 interface AgentChatProps {
   id: string;
@@ -19,7 +25,8 @@ interface AgentChatProps {
     message: string,
     referencedArtifactIds: string[],
     metadata: Record<string, unknown>
-  ) => Promise<string | null>;
+  ) => Promise<{ content: string | null; progression?: ProgressionDecision | null } | null>;
+  onTransitionChange?: (inTransition: boolean) => void;
   onSendEmail?: (to: string, subject: string, body: string, attachments?: string[]) => void;
   onTrackEvent?: (
     eventType: SimulatorEventType,
@@ -70,12 +77,14 @@ export function AgentChat({
   onClearFiles,
   onAddFile,
   onAgentTurn,
+  onTransitionChange,
   onTrackEvent,
   onSendEmail
 }: AgentChatProps) {
   const [message, setMessage] = useState('');
+  const [chatLocked, setChatLocked] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'agent'; content: string }>>([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'agent', content: initialMessage || 'Hello! How can I assist you today?' }
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -108,6 +117,7 @@ export function AgentChat({
   }, [messages]);
 
   const handleSend = async () => {
+    if (chatLocked) return;
     if (!message.trim() && uploadedFiles.length === 0) return;
 
     const rawMessage = message;
@@ -140,14 +150,25 @@ export function AgentChat({
           attachment_count: attachments.length,
           attachments,
         });
-        if (response) {
+        if (response?.content) {
           setMessages(prev => [...prev, {
             role: 'agent',
-            content: response
+            content: response.content
           }]);
           onTrackEvent?.('agent_message', {
             source: 'backend_agent_turn',
-          }, response);
+          }, response.content);
+          if (response.progression?.message && response.progression.intervention_type !== 'none') {
+            setMessages(prev => [...prev, {
+              role: 'agent',
+              content: response.progression?.message ?? '',
+              variant: response.progression.transition_required ? 'transition' : 'nudge',
+            }]);
+            if (response.progression.transition_required) {
+              setChatLocked(true);
+              onTransitionChange?.(true);
+            }
+          }
           return;
         }
       } catch (error) {
@@ -374,9 +395,15 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
                           </div>
                           <div className="flex-1 space-y-3 pt-1">
                             <div className="text-sm font-bold text-white">
-                              AI Assistant
+                              {msg.variant === 'transition' ? 'Scenario update' : msg.variant === 'nudge' ? 'Suggested next step' : 'AI Assistant'}
                             </div>
-                            <div className="text-white/90 leading-relaxed text-base">{msg.content}</div>
+                            <div className={`text-white/90 leading-relaxed text-base ${
+                              msg.variant === 'transition'
+                                ? 'rounded-2xl border border-cyan-200/50 bg-cyan-950/35 px-5 py-4'
+                                : msg.variant === 'nudge'
+                                  ? 'rounded-2xl border border-amber-200/50 bg-amber-950/30 px-5 py-4'
+                                  : ''
+                            }`}>{msg.content}</div>
                           </div>
                         </div>
                       ) : (
@@ -463,14 +490,15 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
                           handleSend();
                         }
                       }}
-                      placeholder="Type your message or type ? for help"
+                      placeholder={chatLocked ? 'This scenario is moving forward' : 'Type your message or type ? for help'}
+                      disabled={chatLocked}
                       className="flex-1 text-base text-white outline-none bg-transparent resize-none placeholder:text-white/50"
                       rows={1}
                       style={{ minHeight: '50px', maxHeight: '200px' }}
                     />
                     <button
                       onClick={handleSend}
-                      disabled={!message.trim() && uploadedFiles.length === 0}
+                      disabled={chatLocked || (!message.trim() && uploadedFiles.length === 0)}
                       className="p-3 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl transition-all shadow-lg hover:scale-105 shrink-0"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -480,7 +508,7 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
                   </div>
                 </div>
                 <div className="mt-3 text-xs text-center text-white/60">
-                  Press Enter to send, Shift + Enter for new line • Type ? for help
+                  {chatLocked ? 'The scenario has moved into transition.' : 'Press Enter to send, Shift + Enter for new line • Type ? for help'}
                 </div>
               </div>
             </div>
@@ -553,9 +581,18 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
                 className={`max-w-[280px] px-4 py-3 rounded-2xl backdrop-blur-xl transition-all ${
                   msg.role === 'user'
                     ? 'bg-purple-500/90 text-white shadow-lg'
+                    : msg.variant === 'transition'
+                      ? 'bg-cyan-950/45 border border-cyan-200/50 text-white shadow-lg'
+                      : msg.variant === 'nudge'
+                        ? 'bg-amber-950/40 border border-amber-200/50 text-white shadow-lg'
                     : 'bg-black/25 border border-amber-200/30 text-white shadow-lg'
                 }`}
               >
+                {msg.variant && (
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-white/60">
+                    {msg.variant === 'transition' ? 'Scenario update' : 'Suggested next step'}
+                  </div>
+                )}
                 <p className="text-sm leading-relaxed">{msg.content}</p>
               </div>
               {msg.role === 'user' && <UserAvatar />}
@@ -621,12 +658,13 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Type your message or type ? for help"
+              placeholder={chatLocked ? 'This scenario is moving forward' : 'Type your message or type ? for help'}
+              disabled={chatLocked}
               className="flex-1 text-sm text-white outline-none bg-transparent placeholder:text-white/50"
             />
             <button
               onClick={handleSend}
-              disabled={!message.trim() && uploadedFiles.length === 0}
+              disabled={chatLocked || (!message.trim() && uploadedFiles.length === 0)}
               className="bg-purple-500 hover:bg-purple-600 p-2 rounded-xl shrink-0 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all shadow-lg hover:scale-105"
             >
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -634,7 +672,9 @@ The Q2 budget estimation is complete and Sarah has been notified. You can view t
               </svg>
             </button>
           </div>
-          <p className="text-xs text-white/60 mt-2 text-center">Press Enter to send • Type ? for help</p>
+          <p className="text-xs text-white/60 mt-2 text-center">
+            {chatLocked ? 'The scenario has moved into transition.' : 'Press Enter to send • Type ? for help'}
+          </p>
         </div>
       </div>
     </div>

@@ -12,6 +12,7 @@ from app.schemas.session import (
     FrontendFlowResponse,
     ParticipantProfile,
     PreQuestionnaireSubmissionRequest,
+    ProgressionDecision,
     ReflectionSubmissionRequest,
     SessionEvent,
     SessionEventCreateRequest,
@@ -185,6 +186,8 @@ class EpisodeSessionService:
                 },
             )
             record.events.append(agent_event)
+            progression = self._evaluate_progression(record)
+            self._append_progression_events(record, progression)
             self._session_store.save(record)
             return AgentTurnResponse(
                 session_id=session_id,
@@ -194,6 +197,7 @@ class EpisodeSessionService:
                 prompt_version=prompt_version,
                 user_event=user_event,
                 agent_event=agent_event,
+                progression=progression,
             )
         except AgentResponderUnavailable as exc:
             if self._assistant_fallback_enabled:
@@ -220,6 +224,8 @@ class EpisodeSessionService:
                     },
                 )
                 record.events.append(agent_event)
+                progression = self._evaluate_progression(record)
+                self._append_progression_events(record, progression)
                 self._session_store.save(record)
                 return AgentTurnResponse(
                     session_id=session_id,
@@ -229,6 +235,7 @@ class EpisodeSessionService:
                     prompt_version=fallback_reply.prompt_version,
                     user_event=user_event,
                     agent_event=agent_event,
+                    progression=progression,
                 )
 
             return AgentTurnResponse(
@@ -468,3 +475,175 @@ class EpisodeSessionService:
         ]
         text = " ".join(part.strip() for part in parts if part and part.strip())
         return text or None
+
+    def _evaluate_progression(self, record: SessionRecord) -> ProgressionDecision:
+        episode = self._episode_loader.get(record.episode_id)
+        config = episode.progression
+        target_signals = config.target_signals
+        met = [
+            signal
+            for signal in target_signals
+            if self._progression_signal_met(signal, record, episode)
+        ]
+        missing = [signal for signal in target_signals if signal not in met]
+        agent_turn_count = sum(
+            1 for event in record.events if event.event_type == "agent_message"
+        )
+
+        if not missing:
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+            )
+
+        if any(
+            event.event_type == "phase_changed"
+            and event.metadata.get("reason") == "force_progress_after_limit"
+            for event in record.events
+        ):
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+            )
+
+        if agent_turn_count >= config.force_progress_after_agent_turns:
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+                intervention_type="forced_progression",
+                trigger=f"missing_target_signals_after_{agent_turn_count}_agent_turns",
+                message=config.force_progress_message,
+                transition_required=True,
+            )
+
+        if agent_turn_count == config.strong_nudge_after_agent_turns:
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+                intervention_type="strong_nudge",
+                trigger=f"missing_target_signals_after_{agent_turn_count}_agent_turns",
+                message=config.strong_nudge_message,
+            )
+
+        if agent_turn_count == config.soft_nudge_after_agent_turns:
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+                intervention_type="soft_nudge",
+                trigger=f"missing_target_signals_after_{agent_turn_count}_agent_turns",
+                message=config.soft_nudge_message,
+            )
+
+        return ProgressionDecision(
+            scenario_id=record.episode_id,
+            agent_turn_count=agent_turn_count,
+            target_signals_met=met,
+            target_signals_missing=missing,
+        )
+
+    @staticmethod
+    def _progression_signal_met(signal: str, record: SessionRecord, episode) -> bool:
+        if signal == "source_artifact_opened":
+            source_artifact_ids = {
+                artifact.artifact_id
+                for artifact in episode.artifacts
+                if "source-data" in artifact.tags
+            }
+            return any(
+                event.event_type == "artifact_opened"
+                and event.artifact_id in source_artifact_ids
+                for event in record.events
+            )
+
+        if signal == "user_asked_for_comparison":
+            terms = (
+                "compare",
+                "verify",
+                "reconcile",
+                "check",
+                "source",
+                "dashboard",
+                "discrepancy",
+                "which number",
+            )
+            return any(
+                event.event_type == "user_message"
+                and event.content
+                and any(term in event.content.lower() for term in terms)
+                for event in record.events
+            )
+
+        return False
+
+    def _append_progression_events(
+        self,
+        record: SessionRecord,
+        progression: ProgressionDecision,
+    ) -> None:
+        if progression.intervention_type == "none":
+            return
+
+        if self._progression_event_exists(
+            record,
+            "intervention_shown",
+            progression.intervention_type,
+            progression.agent_turn_count,
+        ):
+            return
+
+        intervention_event = self._build_event(
+            record=record,
+            event_type="intervention_shown",
+            actor="system",
+            content=progression.message,
+            artifact_id=None,
+            metadata=progression.model_dump(mode="json"),
+        )
+        record.events.append(intervention_event)
+
+        if progression.transition_required and not self._progression_event_exists(
+            record,
+            "phase_changed",
+            "forced_progression",
+            progression.agent_turn_count,
+        ):
+            phase_event = self._build_event(
+                record=record,
+                event_type="phase_changed",
+                actor="system",
+                content=progression.message,
+                artifact_id=None,
+                metadata={
+                    "from_phase": "scenario_active",
+                    "to_phase": "transition",
+                    "from_scenario_id": record.episode_id,
+                    "to_scenario_id": None,
+                    "reason": "force_progress_after_limit",
+                    **progression.model_dump(mode="json"),
+                },
+            )
+            record.events.append(phase_event)
+
+    @staticmethod
+    def _progression_event_exists(
+        record: SessionRecord,
+        event_type: str,
+        intervention_type: str,
+        agent_turn_count: int,
+    ) -> bool:
+        return any(
+            event.event_type == event_type
+            and event.metadata.get("intervention_type") == intervention_type
+            and event.metadata.get("agent_turn_count") == agent_turn_count
+            for event in record.events
+        )

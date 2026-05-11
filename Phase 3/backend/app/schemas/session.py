@@ -84,6 +84,19 @@ class AgentTurnRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProgressionDecision(BaseModel):
+    """Optional nudge or transition instruction returned after an agent turn."""
+
+    scenario_id: str
+    agent_turn_count: int
+    target_signals_met: list[str] = Field(default_factory=list)
+    target_signals_missing: list[str] = Field(default_factory=list)
+    intervention_type: Literal["none", "soft_nudge", "strong_nudge", "forced_progression"] = "none"
+    trigger: str | None = None
+    message: str | None = None
+    transition_required: bool = False
+
+
 class SessionEvent(BaseModel):
     """Stored event in the participant session timeline."""
 
@@ -125,6 +138,7 @@ class AgentTurnResponse(BaseModel):
     prompt_version: str
     user_event: SessionEvent
     agent_event: SessionEvent | None = None
+    progression: ProgressionDecision | None = None
     error: str | None = None
 
 

@@ -14,6 +14,7 @@ from app.services.llm.client import GeminiLLMClient, LLMCompletion
 from app.services.llm.grader import LLMGrader
 from app.services.llm.prompts import PromptTemplateRenderer
 from app.services.scoring.deterministic import DeterministicScorer
+from app.services.session_store import _mysql_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -58,6 +59,24 @@ def test_participant_episode_redacts_hidden_context() -> None:
     }
     assert "evaluator_key" not in {artifact.artifact_id for artifact in participant.artifacts}
     assert "hidden_ground_truth" not in participant.model_dump()
+
+
+def test_mysql_storage_backend_accepts_rds_url_shape() -> None:
+    settings = _settings(
+        storage_backend="mysql",
+        database_url="mysql://rds_user:encoded%21pass@example.cluster.amazonaws.com:3306/simulator_dev",
+    )
+
+    config = _mysql_config(settings.database_url or "")
+
+    assert settings.storage_backend == "mysql"
+    assert config == {
+        "host": "example.cluster.amazonaws.com",
+        "port": 3306,
+        "user": "rds_user",
+        "password": "encoded!pass",
+        "database": "simulator_dev",
+    }
 
 
 def test_episode_session_scores_level_1_and_returns_disabled_llm_review() -> None:
@@ -151,6 +170,74 @@ def test_episode_session_scores_level_1_and_returns_disabled_llm_review() -> Non
         assert len(score_events) == 1
         assert score_events[0]["actor"] == "evaluator"
         assert score_events[0]["metadata"]["deterministic"]["rubric_version"] == "episode-rubric-v1"
+
+
+def test_agent_turns_emit_nudges_and_transition_when_target_signals_are_missing() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "stakeholder_report_error_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+
+        progressions = []
+        for index in range(5):
+            response = client.post(
+                f"/api/v1/sessions/{session_id}/agent-turn",
+                json={"message": f"General question {index + 1}"},
+            )
+            assert response.status_code == 200
+            progressions.append(response.json()["progression"])
+
+        assert progressions[1]["intervention_type"] == "soft_nudge"
+        assert progressions[1]["message"] == (
+            "You may want to compare the email with the source file before responding."
+        )
+        assert progressions[3]["intervention_type"] == "strong_nudge"
+        assert progressions[4]["intervention_type"] == "forced_progression"
+        assert progressions[4]["transition_required"] is True
+
+        state = client.get(f"/api/v1/sessions/{session_id}")
+        event_types = [event["event_type"] for event in state.json()["events"]]
+        assert event_types.count("intervention_shown") == 3
+        assert "phase_changed" in event_types
+
+
+def test_agent_progression_does_not_nudge_after_target_signals_are_met() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "stakeholder_report_error_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+        opened = client.post(
+            f"/api/v1/sessions/{session_id}/events",
+            json={
+                "event_type": "artifact_opened",
+                "artifact_id": "launch_readiness_dashboard",
+            },
+        )
+        assert opened.status_code == 200
+
+        for _ in range(2):
+            response = client.post(
+                f"/api/v1/sessions/{session_id}/agent-turn",
+                json={"message": "Can you compare the email with the source dashboard?"},
+            )
+            assert response.status_code == 200
+
+        progression = response.json()["progression"]
+        assert progression["intervention_type"] == "none"
+        assert set(progression["target_signals_met"]) == {
+            "source_artifact_opened",
+            "user_asked_for_comparison",
+        }
 
 
 def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Path) -> None:

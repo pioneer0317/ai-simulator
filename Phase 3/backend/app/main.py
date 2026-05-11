@@ -19,7 +19,7 @@ from app.services.llm.fallback import ScenarioFallbackAgentResponder
 from app.services.llm.grader import LLMGrader
 from app.services.llm.prompts import PromptTemplateRenderer
 from app.services.scoring.deterministic import DeterministicScorer
-from app.services.session_store import InMemorySessionStore, SQLiteSessionStore
+from app.services.session_store import InMemorySessionStore, MySQLSessionStore, SQLiteSessionStore
 from app.services.sessions import EpisodeSessionService
 
 
@@ -62,7 +62,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     else:
         llm_client = DisabledLLMClient()
 
-    if settings.storage_backend == "sqlite":
+    if settings.storage_backend == "mysql":
+        if not settings.database_url:
+            raise ValueError("SIMULATOR_DATABASE_URL is required when SIMULATOR_STORAGE_BACKEND=mysql.")
+        session_store = MySQLSessionStore(settings.database_url)
+    elif settings.storage_backend == "sqlite":
         session_store = SQLiteSessionStore(settings.database_url or "sqlite:///simulator-dev.sqlite")
     else:
         session_store = InMemorySessionStore()
