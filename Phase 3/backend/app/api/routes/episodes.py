@@ -11,6 +11,7 @@ from app.schemas.scoring import EpisodeScoringResponse
 from app.schemas.session import (
     AgentTurnRequest,
     AgentTurnResponse,
+    AnalyticsDashboardSubmissionRequest,
     AdminSessionSummary,
     CompleteSessionRequest,
     FrontendFlowResponse,
@@ -178,6 +179,19 @@ def submit_reflection(
     """Persist post-simulation reflection answers in the session timeline."""
     try:
         return _service(request).submit_reflection(session_id, payload)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/analytics-dashboard", response_model=SessionEventResponse)
+def submit_analytics_dashboard(
+    session_id: str,
+    payload: AnalyticsDashboardSubmissionRequest,
+    request: Request,
+) -> SessionEventResponse:
+    """Persist the participant-facing final analytics dashboard."""
+    try:
+        return _service(request).submit_analytics_dashboard(session_id, payload)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

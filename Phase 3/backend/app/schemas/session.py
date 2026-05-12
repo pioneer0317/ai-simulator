@@ -51,6 +51,18 @@ class ReflectionSubmissionRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AnalyticsDashboardSubmissionRequest(BaseModel):
+    """Persist the participant-facing final analytics dashboard."""
+
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    category_distribution: list[dict[str, Any]] = Field(default_factory=list)
+    accountability_breakdown: dict[str, Any] = Field(default_factory=dict)
+    benchmark_radar: list[dict[str, Any]] = Field(default_factory=list)
+    context_insights: dict[str, Any] | None = None
+    key_findings: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class CompleteSessionRequest(BaseModel):
     """Mark an episode session complete with optional final state metadata."""
 
@@ -152,6 +164,9 @@ class SessionStateResponse(BaseModel):
     status: str
     participant_profile: ParticipantProfile
     participant_episode: ParticipantEpisode
+    pre_questionnaire: dict[str, Any] | None = None
+    post_questionnaire: dict[str, Any] | None = None
+    analytics_dashboard: dict[str, Any] | None = None
     events: list[SessionEvent]
     started_at: datetime
     completed_at: datetime | None = None
@@ -166,6 +181,9 @@ class AdminSessionSummary(BaseModel):
     environment: str
     status: str
     participant_profile: ParticipantProfile
+    pre_questionnaire: dict[str, Any] | None = None
+    post_questionnaire: dict[str, Any] | None = None
+    analytics_dashboard: dict[str, Any] | None = None
     event_count: int
     started_at: datetime
     completed_at: datetime | None = None

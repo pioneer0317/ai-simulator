@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import sqlite3
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import unquote, urlparse
 
 from app.schemas.episode import ParticipantEpisode
@@ -23,6 +23,9 @@ class SessionRecord:
     participant_episode: ParticipantEpisode
     environment: str
     status: str = "active"
+    pre_questionnaire: dict[str, Any] | None = None
+    post_questionnaire: dict[str, Any] | None = None
+    analytics_dashboard: dict[str, Any] | None = None
     events: list[SessionEvent] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
@@ -81,6 +84,8 @@ class SQLiteSessionStore:
                 """
                 SELECT session_id, participant_run_id, episode_id, environment, status,
                        participant_profile_json, participant_episode_json,
+                       pre_questionnaire_json, post_questionnaire_json,
+                       analytics_dashboard_json,
                        started_at, completed_at
                 FROM sessions
                 WHERE session_id = ?
@@ -112,6 +117,9 @@ class SQLiteSessionStore:
             participant_episode=ParticipantEpisode.model_validate(
                 json.loads(row["participant_episode_json"])
             ),
+            pre_questionnaire=_parse_json_data(row["pre_questionnaire_json"]),
+            post_questionnaire=_parse_json_data(row["post_questionnaire_json"]),
+            analytics_dashboard=_parse_json_data(row["analytics_dashboard_json"]),
             events=[
                 SessionEvent.model_validate(json.loads(event_row["event_json"]))
                 for event_row in event_rows
@@ -127,9 +135,11 @@ class SQLiteSessionStore:
                 INSERT INTO sessions (
                     session_id, participant_run_id, episode_id, environment, status,
                     participant_profile_json, participant_episode_json,
+                    pre_questionnaire_json, post_questionnaire_json,
+                    analytics_dashboard_json,
                     started_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     participant_run_id = excluded.participant_run_id,
                     episode_id = excluded.episode_id,
@@ -137,6 +147,9 @@ class SQLiteSessionStore:
                     status = excluded.status,
                     participant_profile_json = excluded.participant_profile_json,
                     participant_episode_json = excluded.participant_episode_json,
+                    pre_questionnaire_json = excluded.pre_questionnaire_json,
+                    post_questionnaire_json = excluded.post_questionnaire_json,
+                    analytics_dashboard_json = excluded.analytics_dashboard_json,
                     started_at = excluded.started_at,
                     completed_at = excluded.completed_at
                 """,
@@ -148,6 +161,9 @@ class SQLiteSessionStore:
                     record.status,
                     _json(record.participant_profile),
                     _json(record.participant_episode),
+                    _json_data(record.pre_questionnaire),
+                    _json_data(record.post_questionnaire),
+                    _json_data(record.analytics_dashboard),
                     _datetime(record.started_at),
                     _datetime(record.completed_at),
                 ),
@@ -207,12 +223,18 @@ class SQLiteSessionStore:
                     status TEXT NOT NULL,
                     participant_profile_json TEXT NOT NULL,
                     participant_episode_json TEXT NOT NULL,
+                    pre_questionnaire_json TEXT,
+                    post_questionnaire_json TEXT,
+                    analytics_dashboard_json TEXT,
                     started_at TEXT NOT NULL,
                     completed_at TEXT
                 )
                 """
             )
             _ensure_column(conn, "sessions", "participant_run_id", "TEXT")
+            _ensure_column(conn, "sessions", "pre_questionnaire_json", "TEXT")
+            _ensure_column(conn, "sessions", "post_questionnaire_json", "TEXT")
+            _ensure_column(conn, "sessions", "analytics_dashboard_json", "TEXT")
             conn.execute(
                 """
                 UPDATE sessions
@@ -248,6 +270,7 @@ class SQLiteSessionStore:
                 ON session_events(event_type, created_at)
                 """
             )
+            _backfill_sqlite_questionnaire_columns(conn)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._path)
@@ -271,6 +294,8 @@ class MySQLSessionStore:
                     """
                     SELECT session_id, participant_run_id, episode_id, environment, status,
                            participant_profile_json, participant_episode_json,
+                           pre_questionnaire_json, post_questionnaire_json,
+                           analytics_dashboard_json,
                            started_at, completed_at
                     FROM sessions
                     WHERE session_id = %s
@@ -304,6 +329,9 @@ class MySQLSessionStore:
             participant_episode=ParticipantEpisode.model_validate(
                 json.loads(row["participant_episode_json"])
             ),
+            pre_questionnaire=_parse_json_data(row["pre_questionnaire_json"]),
+            post_questionnaire=_parse_json_data(row["post_questionnaire_json"]),
+            analytics_dashboard=_parse_json_data(row["analytics_dashboard_json"]),
             events=[
                 SessionEvent.model_validate(json.loads(event_row["event_json"]))
                 for event_row in event_rows
@@ -320,9 +348,11 @@ class MySQLSessionStore:
                     INSERT INTO sessions (
                         session_id, participant_run_id, episode_id, environment, status,
                         participant_profile_json, participant_episode_json,
+                        pre_questionnaire_json, post_questionnaire_json,
+                        analytics_dashboard_json,
                         started_at, completed_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         participant_run_id = VALUES(participant_run_id),
                         episode_id = VALUES(episode_id),
@@ -330,6 +360,9 @@ class MySQLSessionStore:
                         status = VALUES(status),
                         participant_profile_json = VALUES(participant_profile_json),
                         participant_episode_json = VALUES(participant_episode_json),
+                        pre_questionnaire_json = VALUES(pre_questionnaire_json),
+                        post_questionnaire_json = VALUES(post_questionnaire_json),
+                        analytics_dashboard_json = VALUES(analytics_dashboard_json),
                         started_at = VALUES(started_at),
                         completed_at = VALUES(completed_at)
                     """,
@@ -341,6 +374,9 @@ class MySQLSessionStore:
                         record.status,
                         _json(record.participant_profile),
                         _json(record.participant_episode),
+                        _json_data(record.pre_questionnaire),
+                        _json_data(record.post_questionnaire),
+                        _json_data(record.analytics_dashboard),
                         _datetime(record.started_at),
                         _datetime(record.completed_at),
                     ),
@@ -403,11 +439,17 @@ class MySQLSessionStore:
                         status VARCHAR(32) NOT NULL,
                         participant_profile_json LONGTEXT NOT NULL,
                         participant_episode_json LONGTEXT NOT NULL,
+                        pre_questionnaire_json LONGTEXT NULL,
+                        post_questionnaire_json LONGTEXT NULL,
+                        analytics_dashboard_json LONGTEXT NULL,
                         started_at VARCHAR(64) NOT NULL,
                         completed_at VARCHAR(64) NULL
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                     """
                 )
+                _ensure_mysql_column(cursor, "sessions", "pre_questionnaire_json", "LONGTEXT NULL")
+                _ensure_mysql_column(cursor, "sessions", "post_questionnaire_json", "LONGTEXT NULL")
+                _ensure_mysql_column(cursor, "sessions", "analytics_dashboard_json", "LONGTEXT NULL")
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS session_events (
@@ -428,6 +470,7 @@ class MySQLSessionStore:
                 )
                 _ensure_mysql_index(cursor, "session_events", "idx_session_events_session_sequence", "session_id, sequence_index")
                 _ensure_mysql_index(cursor, "session_events", "idx_session_events_type_created", "event_type, created_at")
+                _backfill_mysql_questionnaire_columns(cursor)
             conn.commit()
 
     def _connect(self):
@@ -489,6 +532,91 @@ def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, 
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
+def _ensure_mysql_column(cursor, table_name: str, column_name: str, definition: str) -> None:
+    cursor.execute(f"SHOW COLUMNS FROM {table_name} LIKE %s", (column_name,))
+    if cursor.fetchone() is None:
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def _backfill_sqlite_questionnaire_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT session_id, event_type, event_json
+        FROM session_events
+        WHERE event_type IN (
+            'pre_questionnaire_submitted',
+            'post_reflection_submitted',
+            'analytics_dashboard_generated'
+        )
+        ORDER BY sequence_index ASC
+        """
+    ).fetchall()
+    for row in rows:
+        column = _questionnaire_column(row["event_type"])
+        if column is None:
+            continue
+        payload = _event_metadata_json(row["event_json"])
+        if payload is None:
+            continue
+        conn.execute(
+            f"""
+            UPDATE sessions
+            SET {column} = ?
+            WHERE session_id = ? AND {column} IS NULL
+            """,
+            (payload, row["session_id"]),
+        )
+
+
+def _backfill_mysql_questionnaire_columns(cursor) -> None:
+    cursor.execute(
+        """
+        SELECT session_id, event_type, event_json
+        FROM session_events
+        WHERE event_type IN (
+            'pre_questionnaire_submitted',
+            'post_reflection_submitted',
+            'analytics_dashboard_generated'
+        )
+        ORDER BY sequence_index ASC
+        """
+    )
+    for row in cursor.fetchall():
+        column = _questionnaire_column(row["event_type"])
+        if column is None:
+            continue
+        payload = _event_metadata_json(row["event_json"])
+        if payload is None:
+            continue
+        cursor.execute(
+            f"""
+            UPDATE sessions
+            SET {column} = %s
+            WHERE session_id = %s AND {column} IS NULL
+            """,
+            (payload, row["session_id"]),
+        )
+
+
+def _questionnaire_column(event_type: str) -> str | None:
+    if event_type == "pre_questionnaire_submitted":
+        return "pre_questionnaire_json"
+    if event_type == "post_reflection_submitted":
+        return "post_questionnaire_json"
+    if event_type == "analytics_dashboard_generated":
+        return "analytics_dashboard_json"
+    return None
+
+
+def _event_metadata_json(event_json: str) -> str | None:
+    try:
+        event = json.loads(event_json)
+    except json.JSONDecodeError:
+        return None
+    metadata = event.get("metadata")
+    return _json_data(metadata) if isinstance(metadata, dict) else None
+
+
 def _ensure_mysql_index(cursor, table_name: str, index_name: str, columns: str) -> None:
     cursor.execute(f"SHOW INDEX FROM {table_name} WHERE Key_name = %s", (index_name,))
     if cursor.fetchone() is None:
@@ -501,6 +629,22 @@ def _fallback_participant_run_id(session_id: str) -> str:
 
 def _json(model) -> str:
     return json.dumps(model.model_dump(mode="json"), separators=(",", ":"))
+
+
+def _json_data(value: dict[str, Any] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, separators=(",", ":"))
+
+
+def _parse_json_data(value: str | None) -> dict[str, Any] | None:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _datetime(value: datetime | None) -> str | None:

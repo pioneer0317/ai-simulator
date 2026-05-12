@@ -7,6 +7,7 @@ from app.schemas.scoring import EpisodeScoringResponse
 from app.schemas.session import (
     AgentTurnRequest,
     AgentTurnResponse,
+    AnalyticsDashboardSubmissionRequest,
     AdminSessionSummary,
     CompleteSessionRequest,
     FrontendFlowResponse,
@@ -263,13 +264,15 @@ class EpisodeSessionService:
     ) -> SessionEventResponse:
         """Capture baseline survey answers without mixing them into chat events."""
         record = self._get_record(session_id)
+        questionnaire = request.model_dump(mode="json")
+        record.pre_questionnaire = questionnaire
         event = self._build_event(
             record=record,
             event_type="pre_questionnaire_submitted",
             actor="participant",
             content=None,
             artifact_id=None,
-            metadata=request.model_dump(mode="json"),
+            metadata=questionnaire,
         )
         record.events.append(event)
         self._session_store.save(record)
@@ -282,13 +285,36 @@ class EpisodeSessionService:
     ) -> SessionEventResponse:
         """Capture post-simulation motivation answers as a separate event."""
         record = self._get_record(session_id)
+        questionnaire = request.model_dump(mode="json")
+        record.post_questionnaire = questionnaire
         event = self._build_event(
             record=record,
             event_type="post_reflection_submitted",
             actor="participant",
             content=self._reflection_excerpt(request),
             artifact_id=None,
-            metadata=request.model_dump(mode="json"),
+            metadata=questionnaire,
+        )
+        record.events.append(event)
+        self._session_store.save(record)
+        return SessionEventResponse(session_id=session_id, event=event)
+
+    def submit_analytics_dashboard(
+        self,
+        session_id: str,
+        request: AnalyticsDashboardSubmissionRequest,
+    ) -> SessionEventResponse:
+        """Capture the participant-facing final dashboard as persisted session data."""
+        record = self._get_record(session_id)
+        dashboard = request.model_dump(mode="json")
+        record.analytics_dashboard = dashboard
+        event = self._build_event(
+            record=record,
+            event_type="analytics_dashboard_generated",
+            actor="evaluator",
+            content=None,
+            artifact_id=None,
+            metadata=dashboard,
         )
         record.events.append(event)
         self._session_store.save(record)
@@ -360,6 +386,9 @@ class EpisodeSessionService:
                     environment=record.environment,
                     status=record.status,
                     participant_profile=record.participant_profile,
+                    pre_questionnaire=record.pre_questionnaire,
+                    post_questionnaire=record.post_questionnaire,
+                    analytics_dashboard=record.analytics_dashboard,
                     event_count=len(record.events),
                     started_at=record.started_at,
                     completed_at=record.completed_at,
@@ -461,6 +490,9 @@ class EpisodeSessionService:
             status=record.status,
             participant_profile=record.participant_profile,
             participant_episode=record.participant_episode,
+            pre_questionnaire=record.pre_questionnaire,
+            post_questionnaire=record.post_questionnaire,
+            analytics_dashboard=record.analytics_dashboard,
             events=record.events,
             started_at=record.started_at,
             completed_at=record.completed_at,
@@ -566,6 +598,12 @@ class EpisodeSessionService:
             )
 
         if signal == "user_asked_for_comparison":
+            participant_messages = [
+                (event.content or "").lower()
+                for event in record.events
+                if event.event_type in {"user_message", "decision_submitted", "final_response"}
+                and event.content
+            ]
             terms = (
                 "compare",
                 "verify",
@@ -575,13 +613,80 @@ class EpisodeSessionService:
                 "dashboard",
                 "discrepancy",
                 "which number",
+                "which figure",
+                "which value",
+                "is right",
+                "is correct",
+                "confirm",
+                "confirmation",
+                "validate",
+                "cross-check",
+                "cross check",
+                "look at the file",
+                "look at the notes",
+                "review the file",
+                "review the notes",
             )
-            return any(
-                event.event_type == "user_message"
-                and event.content
-                and any(term in event.content.lower() for term in terms)
-                for event in record.events
+            if any(any(term in message for term in terms) for message in participant_messages):
+                return True
+
+            q3_budget_on_track = (
+                episode.episode_id == "q3_budget_summary_v1"
+                and any(
+                    (
+                        (
+                            "vendor" in message
+                            or "contractor" in message
+                            or "nexus" in message
+                        )
+                        and (
+                            "pending" in message
+                            or "marcus" in message
+                            or "not final" in message
+                            or "unresolved" in message
+                            or "caveat" in message
+                            or "flag" in message
+                            or "tbc" in message
+                            or "to be confirmed" in message
+                        )
+                    )
+                    or (
+                        "send" in message
+                        and "priya" in message
+                        and (
+                            "pending" in message
+                            or "not final" in message
+                            or "unresolved" in message
+                            or "caveat" in message
+                            or "flag" in message
+                        )
+                    )
+                    for message in participant_messages
+                )
             )
+            if q3_budget_on_track:
+                return True
+
+            stakeholder_error_on_track = (
+                episode.episode_id == "stakeholder_report_error_v1"
+                and any(
+                    (
+                        ("13%" in message or "13 percent" in message)
+                        and ("3%" in message or "3 percent" in message)
+                    )
+                    or (
+                        ("correct" in message or "correction" in message)
+                        and ("stakeholder" in message or "svp" in message)
+                    )
+                    or (
+                        "moderate confidence" in message
+                        and ("risk" in message or "dashboard" in message)
+                    )
+                    for message in participant_messages
+                )
+            )
+            if stakeholder_error_on_track:
+                return True
 
         return False
 

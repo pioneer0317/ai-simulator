@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     status VARCHAR(32) NOT NULL,
     participant_profile_json LONGTEXT NOT NULL,
     participant_episode_json LONGTEXT NOT NULL,
+    pre_questionnaire_json LONGTEXT NULL,
+    post_questionnaire_json LONGTEXT NULL,
+    analytics_dashboard_json LONGTEXT NULL,
     started_at VARCHAR(64) NOT NULL,
     completed_at VARCHAR(64) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useSimulation, type SimulationData } from '../context/SimulationContext';
 import {
   buildPrototypeSyncPayload,
@@ -8,6 +8,11 @@ import {
   storePrototypeSyncState,
   syncPrototypeBackendSession,
 } from '../lib/prototypeApi';
+import {
+  getStoredSimulatorSessionId,
+  submitAnalyticsDashboard,
+  type AnalyticsDashboardPayload,
+} from '../lib/simulatorApi';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
@@ -16,6 +21,7 @@ import { ObserverSummaryDashboard } from '../components/ObserverSummaryDashboard
 
 export function AnalyticsPageEnhanced() {
   const { data, resetSimulation, hydrateSimulation } = useSimulation();
+  const lastPersistedDashboardRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (data.userActions.length > 0 || data.sessionStartTime) {
@@ -176,6 +182,112 @@ export function AnalyticsPageEnhanced() {
       lowTransparencyTrust: lowTransparencyActions.filter((a) => a.category === 'compliance').length,
     };
   }, [data.userActions, totalActions]);
+
+  const mostFrequentCategory = useMemo(
+    () => categoryData.reduce((prev, curr) => (prev.value > curr.value ? prev : curr)),
+    [categoryData]
+  );
+
+  const analyticsDashboardPayload = useMemo<AnalyticsDashboardPayload>(() => {
+    const humanOwnershipRate = totalActions > 0 ? Math.round((humanControlActions / totalActions) * 100) : 0;
+    const aiDeferenceRate = totalActions > 0 ? Math.round((aiDeferralActions / totalActions) * 100) : 0;
+    const blindTrustIncidents = complianceActions.filter((a) => a.wasHallucination).length;
+
+    return {
+      metrics: {
+        calibrated_trust_score: calibratedTrustScore,
+        human_control_actions: humanControlActions,
+        ai_deferral_actions: aiDeferralActions,
+        total_actions: totalActions,
+        human_ownership_rate: humanOwnershipRate,
+        ai_deference_rate: aiDeferenceRate,
+        blind_trust_incidents: blindTrustIncidents,
+      },
+      category_distribution: categoryData.map(({ id, name, value }) => ({ id, name, value })),
+      accountability_breakdown: {
+        human_control: {
+          total: humanControlActions,
+          verification: verificationActions.length,
+          override: overrideActions.length,
+          clarification: clarificationActions.length,
+        },
+        ai_deference: {
+          total: aiDeferralActions,
+          compliance: complianceActions.length,
+          blind_trust_incidents: blindTrustIncidents,
+        },
+      },
+      benchmark_radar: radarData.map(({ id, metric, user, professional, fullMark }) => ({
+        id,
+        metric,
+        user,
+        professional,
+        full_mark: fullMark,
+      })),
+      context_insights: contextInsights,
+      key_findings: {
+        trust_calibration_band:
+          calibratedTrustScore >= 75 ? 'excellent' : calibratedTrustScore >= 50 ? 'moderate' : 'poor',
+        control_vs_deference_ratio: `${humanControlActions}:${aiDeferralActions}`,
+        most_frequent_action_category: {
+          id: mostFrequentCategory.id,
+          name: mostFrequentCategory.name,
+          value: mostFrequentCategory.value,
+        },
+        human_archetype: data.humanArchetype,
+        agent_mode: data.agentMode,
+        misalignment_count: data.misalignmentCount,
+      },
+      metadata: {
+        source: 'analytics_page',
+        generated_at: new Date().toISOString(),
+        session_start_time: data.sessionStartTime?.toISOString() ?? null,
+        session_end_time: data.sessionEndTime?.toISOString() ?? null,
+      },
+    };
+  }, [
+    aiDeferralActions,
+    calibratedTrustScore,
+    categoryData,
+    clarificationActions.length,
+    complianceActions,
+    contextInsights,
+    data.agentMode,
+    data.humanArchetype,
+    data.misalignmentCount,
+    data.sessionEndTime,
+    data.sessionStartTime,
+    humanControlActions,
+    mostFrequentCategory,
+    overrideActions.length,
+    radarData,
+    totalActions,
+    verificationActions.length,
+  ]);
+
+  useEffect(() => {
+    const sessionId = getStoredSimulatorSessionId();
+    if (!sessionId || (data.userActions.length === 0 && !data.sessionStartTime)) {
+      return;
+    }
+
+    const stablePayload = {
+      ...analyticsDashboardPayload,
+      metadata: {
+        ...analyticsDashboardPayload.metadata,
+        generated_at: undefined,
+      },
+    };
+    const payloadKey = JSON.stringify(stablePayload);
+    if (lastPersistedDashboardRef.current === payloadKey) {
+      return;
+    }
+    lastPersistedDashboardRef.current = payloadKey;
+
+    void submitAnalyticsDashboard(sessionId, analyticsDashboardPayload).catch(() => {
+      lastPersistedDashboardRef.current = null;
+    });
+  }, [analyticsDashboardPayload, data.sessionStartTime, data.userActions.length]);
 
   const handleReset = () => {
     resetSimulation();
@@ -730,9 +842,9 @@ export function AnalyticsPageEnhanced() {
             <p className="text-white leading-relaxed">
               <span className="font-bold text-cyan-300">Your Behavioral Pattern:</span> Most frequent action category is{' '}
               <span className="font-bold text-purple-300">
-                {categoryData.reduce((prev, curr) => prev.value > curr.value ? prev : curr).name}
+                {mostFrequentCategory.name}
               </span>
-              {' '}({categoryData.reduce((prev, curr) => prev.value > curr.value ? prev : curr).value} times)
+              {' '}({mostFrequentCategory.value} times)
             </p>
           </div>
         </Card>

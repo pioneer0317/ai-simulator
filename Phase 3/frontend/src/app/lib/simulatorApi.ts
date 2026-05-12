@@ -36,6 +36,7 @@ export type SimulatorEventType =
   | 'intervention_shown'
   | 'phase_changed'
   | 'post_reflection_submitted'
+  | 'analytics_dashboard_generated'
   | 'scenario_completed';
 
 export interface StartSessionPayload {
@@ -128,6 +129,16 @@ export interface ReflectionPayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface AnalyticsDashboardPayload {
+  metrics: Record<string, unknown>;
+  category_distribution: Array<Record<string, unknown>>;
+  accountability_breakdown: Record<string, unknown>;
+  benchmark_radar: Array<Record<string, unknown>>;
+  context_insights?: Record<string, unknown> | null;
+  key_findings: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
 export interface SessionEventPayload {
   event_type: SimulatorEventType | string;
   actor?: SimulatorActor;
@@ -175,6 +186,9 @@ export interface AdminSessionSummary {
     ai_relationship_label?: string | null;
     metadata?: Record<string, unknown>;
   };
+  pre_questionnaire?: PreQuestionnairePayload | null;
+  post_questionnaire?: ReflectionPayload | null;
+  analytics_dashboard?: AnalyticsDashboardPayload | null;
   event_count: number;
   started_at: string;
   completed_at?: string | null;
@@ -188,6 +202,9 @@ export interface SessionStateResponse {
   environment: string;
   status: string;
   participant_profile: AdminSessionSummary['participant_profile'];
+  pre_questionnaire?: PreQuestionnairePayload | null;
+  post_questionnaire?: ReflectionPayload | null;
+  analytics_dashboard?: AnalyticsDashboardPayload | null;
   participant_episode: ParticipantEpisode;
   events: Array<{
     event_id: string;
@@ -229,6 +246,13 @@ export async function submitPreQuestionnaire(
 
 export async function submitReflection(sessionId: string, payload: ReflectionPayload) {
   return request(`/sessions/${sessionId}/reflection`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function submitAnalyticsDashboard(sessionId: string, payload: AnalyticsDashboardPayload) {
+  return request(`/sessions/${sessionId}/analytics-dashboard`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

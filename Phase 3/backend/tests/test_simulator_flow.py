@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 
 from fastapi.testclient import TestClient
 
@@ -242,6 +243,48 @@ def test_agent_progression_does_not_nudge_after_target_signals_are_met() -> None
         }
 
 
+def test_agent_progression_accepts_semantic_on_track_answers() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "q3_budget_summary_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+        opened = client.post(
+            f"/api/v1/sessions/{session_id}/events",
+            json={
+                "event_type": "artifact_opened",
+                "artifact_id": "q3_budget_tracker",
+            },
+        )
+        assert opened.status_code == 200
+
+        response = None
+        for _ in range(5):
+            response = client.post(
+                f"/api/v1/sessions/{session_id}/agent-turn",
+                json={
+                    "message": (
+                        "Let's send Priya the summary, but flag vendor services as "
+                        "pending Marcus/Nexus confirmation because that amount is not final."
+                    )
+                },
+            )
+            assert response.status_code == 200
+
+        assert response is not None
+        progression = response.json()["progression"]
+        assert progression["intervention_type"] == "none"
+        assert progression["transition_required"] is False
+        assert set(progression["target_signals_met"]) == {
+            "source_artifact_opened",
+            "user_asked_for_comparison",
+        }
+
+
 def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'simulator-test.sqlite'}"
     settings = _settings(storage_backend="sqlite", database_url=database_url)
@@ -253,6 +296,59 @@ def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Pa
         )
         assert start.status_code == 201
         session_id = start.json()["session_id"]
+
+        pre = client.post(
+            f"/api/v1/sessions/{session_id}/pre-questionnaire",
+            json={
+                "functional_area": "Finance",
+                "level": "Manager",
+                "training_status": "No formal training",
+                "answers": [
+                    {
+                        "question_id": "verification_orientation",
+                        "value": "left",
+                        "label": "Verify important details",
+                    }
+                ],
+            },
+        )
+        assert pre.status_code == 200
+
+        reflection = client.post(
+            f"/api/v1/sessions/{session_id}/reflection",
+            json={
+                "main_influence": "I checked the dashboard.",
+                "trust_reason": "The assistant cited the source.",
+                "unchecked_reason": "Nothing else seemed relevant.",
+            },
+        )
+        assert reflection.status_code == 200
+
+        dashboard = client.post(
+            f"/api/v1/sessions/{session_id}/analytics-dashboard",
+            json={
+                "metrics": {
+                    "calibrated_trust_score": 82,
+                    "human_control_actions": 3,
+                    "ai_deferral_actions": 1,
+                    "total_actions": 4,
+                },
+                "category_distribution": [
+                    {"id": "verification", "name": "Verification", "value": 2},
+                    {"id": "compliance", "name": "Compliance", "value": 1},
+                ],
+                "accountability_breakdown": {
+                    "human_control": {"total": 3},
+                    "ai_deference": {"total": 1},
+                },
+                "benchmark_radar": [
+                    {"id": "verification", "metric": "Verification Behavior", "user": 75, "professional": 80}
+                ],
+                "key_findings": {"trust_calibration_band": "excellent"},
+                "metadata": {"source": "analytics_page"},
+            },
+        )
+        assert dashboard.status_code == 200
 
         event = client.post(
             f"/api/v1/sessions/{session_id}/events",
@@ -272,10 +368,18 @@ def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Pa
     payload = state.json()
     assert payload["session_id"] == session_id
     assert payload["participant_run_id"].startswith("run-")
-    assert payload["events"][0]["event_type"] == "artifact_opened"
-    assert payload["events"][0]["artifact_id"] == "launch_readiness_dashboard"
-    assert payload["events"][0]["metadata"]["ui_surface"] == "mail_window"
-    assert payload["events"][0]["metadata"]["participant_run_id"] == payload["participant_run_id"]
+    assert payload["pre_questionnaire"]["answers"][0]["question_id"] == "verification_orientation"
+    assert payload["post_questionnaire"]["trust_reason"] == "The assistant cited the source."
+    assert payload["analytics_dashboard"]["metrics"]["calibrated_trust_score"] == 82
+    assert [event["event_type"] for event in payload["events"]] == [
+        "pre_questionnaire_submitted",
+        "post_reflection_submitted",
+        "analytics_dashboard_generated",
+        "artifact_opened",
+    ]
+    assert payload["events"][3]["artifact_id"] == "launch_readiness_dashboard"
+    assert payload["events"][3]["metadata"]["ui_surface"] == "mail_window"
+    assert payload["events"][3]["metadata"]["participant_run_id"] == payload["participant_run_id"]
 
 
 def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path) -> None:
@@ -293,6 +397,58 @@ def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path
         assert start.status_code == 201
         session_id = start.json()["session_id"]
 
+        pre = client.post(
+            f"/api/v1/sessions/{session_id}/pre-questionnaire",
+            json={
+                "functional_area": "Finance",
+                "level": "Manager",
+                "training_status": "No formal training",
+                "answers": [
+                    {
+                        "question_id": "verification_orientation",
+                        "value": "left",
+                        "label": "Verify important details",
+                    }
+                ],
+            },
+        )
+        assert pre.status_code == 200
+
+        reflection = client.post(
+            f"/api/v1/sessions/{session_id}/reflection",
+            json={
+                "main_influence": "I checked the dashboard.",
+                "trust_reason": "The assistant cited the source.",
+                "unchecked_reason": "Nothing else seemed relevant.",
+            },
+        )
+        assert reflection.status_code == 200
+
+        dashboard = client.post(
+            f"/api/v1/sessions/{session_id}/analytics-dashboard",
+            json={
+                "metrics": {
+                    "calibrated_trust_score": 88,
+                    "human_control_actions": 4,
+                    "ai_deferral_actions": 1,
+                    "total_actions": 5,
+                },
+                "category_distribution": [
+                    {"id": "verification", "name": "Verification", "value": 3}
+                ],
+                "accountability_breakdown": {
+                    "human_control": {"total": 4},
+                    "ai_deference": {"total": 1},
+                },
+                "benchmark_radar": [
+                    {"id": "control", "metric": "Human Control", "user": 80, "professional": 70}
+                ],
+                "key_findings": {"control_vs_deference_ratio": "4:1"},
+                "metadata": {"source": "analytics_page"},
+            },
+        )
+        assert dashboard.status_code == 200
+
         event = client.post(
             f"/api/v1/sessions/{session_id}/events",
             json={
@@ -308,7 +464,25 @@ def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path
         payload = sessions.json()
         assert payload[0]["session_id"] == session_id
         assert payload[0]["participant_run_id"].startswith("run-")
-        assert payload[0]["event_count"] == 1
+        assert payload[0]["event_count"] == 4
+        assert payload[0]["pre_questionnaire"]["answers"][0]["question_id"] == "verification_orientation"
+        assert payload[0]["post_questionnaire"]["main_influence"] == "I checked the dashboard."
+        assert payload[0]["analytics_dashboard"]["metrics"]["calibrated_trust_score"] == 88
+
+        with sqlite3.connect(tmp_path / "simulator-admin-test.sqlite") as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT pre_questionnaire_json, post_questionnaire_json, analytics_dashboard_json
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        assert row is not None
+        assert json.loads(row["pre_questionnaire_json"])["answers"][0]["question_id"] == "verification_orientation"
+        assert json.loads(row["post_questionnaire_json"])["trust_reason"] == "The assistant cited the source."
+        assert json.loads(row["analytics_dashboard_json"])["metrics"]["human_control_actions"] == 4
 
         export = client.get("/api/v1/admin/events.csv")
         assert export.status_code == 200
@@ -316,6 +490,26 @@ def test_admin_dashboard_endpoints_return_sessions_and_csv_export(tmp_path: Path
         assert "notification_clicked" in export.text
         assert "admin-check" in export.text
         assert "participant_run_id" in export.text.splitlines()[0]
+
+    with sqlite3.connect(tmp_path / "simulator-admin-test.sqlite") as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET pre_questionnaire_json = NULL,
+                post_questionnaire_json = NULL,
+                analytics_dashboard_json = NULL
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+
+    with TestClient(create_app(settings)) as restarted_client:
+        state = restarted_client.get(f"/api/v1/sessions/{session_id}")
+    assert state.status_code == 200
+    restarted_payload = state.json()
+    assert restarted_payload["pre_questionnaire"]["answers"][0]["question_id"] == "verification_orientation"
+    assert restarted_payload["post_questionnaire"]["unchecked_reason"] == "Nothing else seemed relevant."
+    assert restarted_payload["analytics_dashboard"]["key_findings"]["control_vs_deference_ratio"] == "4:1"
 
 
 def test_frontend_flow_describes_unified_research_routes() -> None:
@@ -396,6 +590,9 @@ def test_unified_frontend_lifecycle_captures_survey_reflection_and_completion() 
         payload = state.json()
         assert payload["status"] == "completed"
         assert payload["participant_run_id"].startswith("run-")
+        assert payload["pre_questionnaire"]["functional_area"] == "Product"
+        assert payload["pre_questionnaire"]["answers"][0]["question_id"] == "ai_confidence"
+        assert payload["post_questionnaire"]["trust_reason"] == "The assistant helped compare evidence."
         assert [event["event_type"] for event in payload["events"]] == [
             "pre_questionnaire_submitted",
             "post_reflection_submitted",

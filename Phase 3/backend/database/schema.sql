@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     status TEXT NOT NULL,
     participant_profile_json TEXT NOT NULL,
     participant_episode_json TEXT NOT NULL,
+    pre_questionnaire_json TEXT,
+    post_questionnaire_json TEXT,
+    analytics_dashboard_json TEXT,
     started_at TEXT NOT NULL,
     completed_at TEXT
 );
