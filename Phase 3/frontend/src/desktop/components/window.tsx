@@ -19,12 +19,19 @@ interface WindowProps {
   sentEmails?: Array<{
     id: string;
     to: string;
+    cc?: string;
     subject: string;
     body: string;
     attachments?: string[];
     time: string;
   }>;
-  onSendEmail?: (to: string, subject: string, body: string, attachments?: string[]) => void;
+  onSendEmail?: (to: string, subject: string, body: string, attachments?: string[], cc?: string) => void;
+  marcusMessages?: Array<{
+    sender: string;
+    time: string;
+    text: string;
+  }>;
+  onMarcusConversationViewed?: () => void;
   onTrackEvent?: (
     eventType: SimulatorEventType,
     metadata?: Record<string, unknown>,
@@ -46,7 +53,7 @@ const fallbackMailMessage: DesktopMailMessage = {
   replySubject: 'Re: Budget Estimation Reminder',
 };
 
-export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, workFiles = [], sentEmails = [], onSendEmail, onTrackEvent }: WindowProps) {
+export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, workFiles = [], sentEmails = [], onSendEmail, marcusMessages = [], onMarcusConversationViewed, onTrackEvent }: WindowProps) {
   const [position, setPosition] = useState({ x: Math.random() * 200 + 100, y: Math.random() * 100 + 50 });
   const [size, setSize] = useState({ width: 600, height: 400 });
   const [isDragging, setIsDragging] = useState(false);
@@ -419,19 +426,21 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 	                    const isWord = fileName.endsWith('.docx');
 	                    const isExcel = fileName.endsWith('.xlsx');
 	                    const isText = fileName.endsWith('.txt');
+	                    const isPdf = fileName.endsWith('.pdf');
 	                    const isFinalBudget = fileName === 'Q2_Budget_Final.xlsx';
 	                    const scenarioFile = scenarioFiles.find((file) => file.fileName === fileName);
+                      const backendArtifactId = scenarioFile?.metadata.backend_artifact === false ? null : scenarioFile?.artifactId;
 
 	                    return (
                       <div
                         key={index}
                         onClick={() => {
                           onTrackEvent?.('artifact_opened', {
-                            source: 'finder',
-                            artifact_kind: isExcel ? 'spreadsheet' : 'document',
+	                            source: 'finder',
+	                            artifact_kind: isExcel ? 'spreadsheet' : isPdf ? 'pdf' : 'document',
 	                            file_name: fileName,
-	                            artifact_id: scenarioFile?.artifactId,
-	                          }, null, scenarioFile?.artifactId ?? fileName);
+	                            artifact_id: backendArtifactId,
+	                          }, null, backendArtifactId);
 	                          if (scenarioFile) {
 	                            setOpenDocument(fileName);
 	                          } else if (fileName === 'Q2 Budget Proposal.docx') {
@@ -446,14 +455,14 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                       >
                         <div className="relative w-12 h-12">
                           <svg viewBox="0 0 48 48" className="w-full h-full drop-shadow-sm">
-	                            {isWord || isText ? (
+	                            {isWord || isText || isPdf ? (
 	                              <>
-	                                <rect x="8" y="4" width="32" height="40" rx="2" fill={isText ? '#64748B' : '#2B579A'} />
-	                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill={isText ? '#475569' : '#1C3F6E'} />
+	                                <rect x="8" y="4" width="32" height="40" rx="2" fill={isPdf ? '#DC2626' : isText ? '#64748B' : '#2B579A'} />
+	                                <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill={isPdf ? '#991B1B' : isText ? '#475569' : '#1C3F6E'} />
 	                                <rect x="12" y="20" width="24" height="2" rx="1" fill="white" opacity="0.9" />
 	                                <rect x="12" y="25" width="24" height="2" rx="1" fill="white" opacity="0.9" />
 	                                <rect x="12" y="30" width="18" height="2" rx="1" fill="white" opacity="0.9" />
-	                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">{isText ? 'T' : 'W'}</text>
+	                                <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">{isPdf ? 'P' : isText ? 'T' : 'W'}</text>
 	                              </>
                             ) : (
                               <>
@@ -471,7 +480,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                           </svg>
                         </div>
                         <span className="text-xs text-center leading-tight h-8">
-	                          {fileName.replace('.docx', '').replace('.xlsx', '').replace('.txt', '').split(' ').map((word, i, arr) => (
+	                          {fileName.replace('.docx', '').replace('.xlsx', '').replace('.txt', '').replace('.pdf', '').split(' ').map((word, i, arr) => (
                             <span key={i}>
                               {word}
                               {i < arr.length - 1 && i % 2 === 1 ? <br /> : ' '}
@@ -480,6 +489,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 	                          {isWord && '.docx'}
 	                          {isExcel && '.xlsx'}
 	                          {isText && '.txt'}
+                            {isPdf && '.pdf'}
 	                        </span>
                       </div>
                     );
@@ -582,7 +592,10 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
               <div key={email.id} className="border-b border-gray-300 hover:bg-blue-50 cursor-pointer transition-colors">
                 <div className="p-3">
                   <div className="flex items-start justify-between mb-1">
-                    <span className="font-semibold text-sm text-gray-900">To: {email.to}</span>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-sm text-gray-900">To: {email.to}</span>
+                      {email.cc && <span className="text-xs text-gray-600">CC: {email.cc}</span>}
+                    </div>
                     <span className="text-xs text-gray-500">{email.time}</span>
                   </div>
                   <div className="text-sm font-medium text-gray-800 mb-1">{email.subject}</div>
@@ -716,6 +729,9 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                 <div className="mb-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-3">{sentEmails[sentEmails.length - 1].subject}</h2>
                   <div className="text-xs text-gray-500 mb-1">To: {sentEmails[sentEmails.length - 1].to}</div>
+                  {sentEmails[sentEmails.length - 1].cc && (
+                    <div className="text-xs text-gray-500 mb-1">CC: {sentEmails[sentEmails.length - 1].cc}</div>
+                  )}
                   <div className="text-xs text-gray-500">{sentEmails[sentEmails.length - 1].time}</div>
                 </div>
 
@@ -765,7 +781,8 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
       const directMessages = [
         { id: 'sarah', name: 'Sarah Chen', status: 'online', unread: 1 },
         { id: 'mike', name: 'Mike Johnson', status: 'away', unread: 0 },
-        { id: 'emma', name: 'Emma Wilson', status: 'online', unread: 0 }
+        { id: 'emma', name: 'Emma Wilson', status: 'online', unread: 0 },
+        ...(marcusMessages.length > 0 ? [{ id: 'marcus', name: 'Marcus Webb', status: 'online', unread: 0 }] : [])
       ];
 
       const messages: Record<string, Array<{ sender: string; time: string; text: string; avatar?: string }>> = {
@@ -799,7 +816,8 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
         'emma': [
           { sender: 'Emma Wilson', time: 'Tuesday', text: 'Thanks for helping with the deployment yesterday!' },
           { sender: 'You', time: 'Tuesday', text: 'No problem! Happy to help.' }
-        ]
+        ],
+        'marcus': marcusMessages
       };
 
       const currentMessages = messages[selectedChannel] || [];
@@ -845,7 +863,12 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                 {directMessages.map((dm) => (
                   <button
                     key={dm.id}
-                    onClick={() => setSelectedChannel(dm.id)}
+                    onClick={() => {
+                      setSelectedChannel(dm.id);
+                      if (dm.id === 'marcus') {
+                        onMarcusConversationViewed?.();
+                      }
+                    }}
                     className={`w-full text-left px-2 py-1 rounded flex items-center justify-between group ${
                       selectedChannel === dm.id ? 'bg-purple-700' : 'hover:bg-purple-700/50'
                     }`}
@@ -890,18 +913,34 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
             <div className="flex-1 overflow-y-auto p-4 bg-white">
               <div className="space-y-4">
                 {currentMessages.map((msg, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-gray-500 to-gray-600 rounded flex items-center justify-center text-white font-semibold text-sm shrink-0">
-                      {msg.sender === 'You' ? 'U' : msg.sender.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-baseline gap-2 mb-1">
-                        <span className="font-semibold text-gray-900 text-sm">{msg.sender}</span>
-                        <span className="text-xs text-gray-500">{msg.time}</span>
+                  msg.sender === 'System' ? (
+                    <div key={i} className="my-4">
+                      <div className="rounded-r-lg border-l-4 border-orange-500 bg-orange-50 p-4 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1">
+                            <div className="mb-1 flex items-baseline gap-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-orange-800">Automatic Reply</span>
+                              <span className="text-xs text-orange-600">{msg.time}</span>
+                            </div>
+                            <p className="text-sm leading-relaxed text-gray-800">{msg.text.replace('AUTOMATIC REPLY: ', '')}</p>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-gray-800 text-sm leading-relaxed">{msg.text}</p>
                     </div>
-                  </div>
+                  ) : (
+                    <div key={i} className="flex gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-gray-500 to-gray-600 rounded flex items-center justify-center text-white font-semibold text-sm shrink-0">
+                        {msg.sender === 'You' ? 'U' : msg.sender.split(' ').map(n => n[0]).join('')}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="font-semibold text-gray-900 text-sm">{msg.sender}</span>
+                          <span className="text-xs text-gray-500">{msg.time}</span>
+                        </div>
+                        <p className="text-gray-800 text-sm leading-relaxed">{msg.text}</p>
+                      </div>
+                    </div>
+                  )
                 ))}
               </div>
             </div>

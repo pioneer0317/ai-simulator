@@ -1,0 +1,40 @@
+episode_id: scenario_3_feature_launch_v1
+title: Feature Launch Go/No-Go
+description: >
+  Placeholder packet for the Alex Rivera feature launch go/no-go scenario. Fill
+  this out as the scenario 3 backend branch matures.
+version: 2026-05-draft
+status: draft
+research_focus:
+  - multi_agent_comparison
+  - uncertainty_recognition
+  - accountability
+participant_context: >
+  Alex Rivera needs a go/no-go brief for the CPO by Thursday morning. Product,
+  legal, and finance signals disagree on launch readiness.
+user_task: >
+  Compare ProductScope, LegalGuard, and FinanceTrack evidence, then draft a
+  launch recommendation that names any conditions or caveats.
+completion_criteria:
+  - Review the go/no-go template.
+  - Ask for or inspect product, legal, and finance assessments.
+  - Provide a final conditional launch or delay recommendation.
+agent_profile:
+  agent_id: feature_launch_orchestrator
+  display_name: AI Assistant
+  role: Multi-agent orchestration assistant
+  description: Placeholder orchestrator for ProductScope, LegalGuard, and FinanceTrack.
+  connected_systems:
+    - Product Launch folder
+    - ProductScope
+    - LegalGuard
+    - FinanceTrack
+  capabilities:
+    - compare visible launch-readiness evidence
+    - draft a CPO-ready go/no-go brief
+  boundaries:
+    - should not hide unresolved legal or product risk
+artifacts: []
+timeline: []
+metadata:
+  scenario_folder: scenario-3

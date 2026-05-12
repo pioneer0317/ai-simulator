@@ -20,7 +20,7 @@ export function FilePicker({ onClose, onFileSelect, selectedFiles, availableFile
   ]).reduce<Record<string, { type: 'file'; fileType: string }>>((files, fileName) => {
     files[fileName] = {
       type: 'file',
-      fileType: fileName.endsWith('.docx') ? 'word' : fileName.endsWith('.txt') ? 'text' : 'excel',
+      fileType: fileName.endsWith('.docx') ? 'word' : fileName.endsWith('.txt') ? 'text' : fileName.endsWith('.pdf') ? 'pdf' : 'excel',
     };
     return files;
   }, {});
@@ -178,10 +178,10 @@ export function FilePicker({ onClose, onFileSelect, selectedFiles, availableFile
                 className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-blue-50 transition-colors text-left group disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-	                  {item.fileType === 'word' || item.fileType === 'text' ? (
+	                  {item.fileType === 'word' || item.fileType === 'text' || item.fileType === 'pdf' ? (
 	                    <>
-	                      <rect x="4" y="4" width="16" height="16" rx="2" fill={item.fileType === 'text' ? '#64748B' : '#2B579A'} stroke="none" />
-	                      <text x="12" y="16" fontSize="10" fill="white" textAnchor="middle" fontWeight="bold">{item.fileType === 'text' ? 'T' : 'W'}</text>
+	                      <rect x="4" y="4" width="16" height="16" rx="2" fill={item.fileType === 'pdf' ? '#DC2626' : item.fileType === 'text' ? '#64748B' : '#2B579A'} stroke="none" />
+	                      <text x="12" y="16" fontSize="10" fill="white" textAnchor="middle" fontWeight="bold">{item.fileType === 'pdf' ? 'P' : item.fileType === 'text' ? 'T' : 'W'}</text>
 	                    </>
                   ) : (
                     <>

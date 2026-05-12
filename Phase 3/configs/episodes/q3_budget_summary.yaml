@@ -1,0 +1,176 @@
+episode_id: q3_budget_summary_v1
+title: Q3 Budget Summary for Priya
+description: >
+  Prototype desktop episode where the participant works with an AI assistant to
+  prepare a Q3 department budget summary while deciding how to handle an
+  unresolved vendor-services figure.
+version: 2026-05-v1
+status: review_ready
+research_focus:
+  - evidence_verification
+  - uncertainty_recognition
+  - accountability
+  - trust_calibration
+participant_context: >
+  Priya Sharma in Finance needs a clean Q3 department budget summary by end of
+  day. The visible notes and tracker contain settled figures as well as two
+  unresolved estimates.
+user_task: >
+  Use the assistant and source files to decide what to send to Priya. A strong
+  response should avoid treating unresolved estimates as final and should make
+  any remaining uncertainty explicit.
+completion_criteria:
+  - Review or ask about the Q3 budget notes and tracker.
+  - Notice that the vendor-services figure is pending Marcus/Nexus confirmation.
+  - Send or draft a Priya-ready summary that marks unresolved figures clearly.
+agent_profile:
+  agent_id: q3_budget_assistant
+  display_name: AI Assistant
+  role: Embedded workplace assistant
+  description: >
+    The assistant can summarize the visible budget files, draft email text, and
+    help reason about unresolved Q3 budget lines.
+  connected_systems:
+    - Finder work folder
+    - Mail
+    - Messages
+    - Budget tracker
+  capabilities:
+    - summarize visible budget artifacts
+    - draft Priya-facing email copy
+    - identify unresolved estimates and source-file caveats
+  boundaries:
+    - cannot confirm Marcus's Nexus update unless the participant finds it
+    - should not present pending estimates as final
+artifacts:
+  - artifact_id: q3_budget_request
+    title: Priya Budget Request
+    kind: email
+    summary: Priya asks for a clean Q3 department budget summary by end of day.
+    content: >
+      Subject: Q3 department budget summary
+
+      Could you send me the latest Q3 department budget summary by end of day?
+      I need the headcount, vendor services, software subscriptions, reserve,
+      and total. Please flag anything that is not final yet.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - stakeholder-message
+      - time-pressure
+  - artifact_id: q3_budget_notes
+    title: Q3_Budget_Notes
+    kind: system_note
+    summary: Meeting notes for the Q3 department budget summary.
+    content: >
+      Staff / Headcount: no changes for this quarter. This number is settled.
+
+      Outside Contractors / Vendor Services: current figure is $38,000. This is
+      an old February estimate from before the Project Nexus scope expanded.
+      Marcus was supposed to call Nexus, confirm the real contractor cost, and
+      send the updated number to Priya. It is unknown whether he did.
+
+      Software Subscriptions: the $14,500 figure is a rough estimate. IT still
+      needs to confirm the actual renewal cost.
+
+      Backup / Extra Reserve: $5,000 set aside for unexpected costs. No change.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-1
+      - source-data
+      - uncertainty
+      - q3-budget
+  - artifact_id: q3_budget_tracker
+    title: Q3_Budget_Tracker
+    kind: dashboard
+    summary: Spreadsheet tracker showing Q2 actuals and Q3 estimates.
+    content: >
+      Q3 Budget Tracker - Department View
+
+      Staff / Headcount: Q2 actual $208,500; Q3 estimate $210,000; confirmed.
+
+      Outside Contractors / Vendor Services: Q2 actual $41,200; Q3 estimate
+      $38,000; placeholder only. Marcus notes that this number must not be
+      treated as final until Nexus confirms the revised scope.
+
+      Software Subscriptions: Q2 actual $13,800; Q3 estimate $14,500; pending IT
+      renewal confirmation.
+
+      Backup / Extra Reserve: Q2 actual $5,000; Q3 estimate $5,000; confirmed.
+
+      Current visible total: $267,500.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-1
+      - source-data
+      - q3-budget
+timeline:
+  - event_id: q3_budget_initial_request
+    sequence: 1
+    channel: agent_chat
+    actor: You
+    title: Initial Q3 Request
+    content: >
+      Hey, I need a clean Q3 budget summary to send to Priya in Finance. Can you
+      pull the meeting notes from the Q3 Planning folder and put something
+      together?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+scoring_moments:
+  - moment_id: pending_vendor_line
+    title: Handles unresolved vendor-services figure
+    dimension_ids:
+      - evidence_verification
+      - uncertainty_recognition
+    trigger: Participant asks about or sends the Q3 vendor-services line.
+    strong_behavior:
+      - Notes that $38,000 is pending Marcus/Nexus confirmation.
+      - Avoids presenting the vendor-services line as final.
+    weak_behavior:
+      - Sends the $38,000 figure as final without caveat.
+  - moment_id: priya_ownership
+    title: Owns the Priya follow-up
+    dimension_ids:
+      - accountability
+      - trust_calibration
+    trigger: Participant drafts or sends the email.
+    strong_behavior:
+      - Clearly owns what was checked and what remains unresolved.
+      - Flags uncertainty without blaming the assistant.
+    weak_behavior:
+      - Delegates the judgment entirely to the assistant.
+progression:
+  target_signals:
+    - source_artifact_opened
+    - user_asked_for_comparison
+  soft_nudge_after_agent_turns: 2
+  strong_nudge_after_agent_turns: 4
+  force_progress_after_agent_turns: 5
+  soft_nudge_message: >
+    You may want to compare the notes and tracker before sending Priya the
+    summary.
+  strong_nudge_message: >
+    Before moving forward, review the vendor-services caveat and decide whether
+    the email should mark it as pending Marcus/Nexus confirmation.
+  force_progress_message: >
+    A new task has arrived after the Q3 budget work. The simulation is ready to
+    move to the next scenario.
+hidden_ground_truth:
+  hallucinated_value: "$38,000 treated as final"
+  source_value: "$38,000 pending Marcus/Nexus confirmation"
+  correct_resolution: >
+    The summary can use the current $38,000 figure only if it clearly states
+    that vendor services are pending Marcus's Nexus confirmation.
+agent_response_contract:
+  style: >
+    The assistant should be concise, practical, and transparent about unresolved
+    budget figures.
+metadata:
+  prototype_flow: macbook_desktop_q3
+  scenario_folder: scenario-1

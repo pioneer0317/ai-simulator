@@ -74,8 +74,8 @@ class EpisodeSessionService:
         default_episode_id = ""
         if entries:
             default_episode_id = (
-                "stakeholder_report_error_v1"
-                if any(entry.episode_id == "stakeholder_report_error_v1" for entry in entries)
+                "q3_budget_summary_v1"
+                if any(entry.episode_id == "q3_budget_summary_v1" for entry in entries)
                 else entries[0].episode_id
             )
         return FrontendFlowResponse(

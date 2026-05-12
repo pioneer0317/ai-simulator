@@ -2,7 +2,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000
 
 const BACKEND_SESSION_ID_KEY = 'simulator-backend-session-id';
 const BACKEND_PARTICIPANT_EPISODE_KEY = 'simulator-participant-episode';
-const DEFAULT_EPISODE_ID = 'stakeholder_report_error_v1';
+const DEFAULT_EPISODE_ID = 'q3_budget_summary_v1';
 
 export type SimulatorActor = 'participant' | 'agent' | 'system' | 'evaluator';
 

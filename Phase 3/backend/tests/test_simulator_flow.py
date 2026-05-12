@@ -83,7 +83,9 @@ def test_episode_session_scores_level_1_and_returns_disabled_llm_review() -> Non
     with TestClient(create_app(_settings())) as client:
         catalog = client.get("/api/v1/episodes")
         assert catalog.status_code == 200
-        assert catalog.json()[0]["episode_id"] == "stakeholder_report_error_v1"
+        episode_ids = {entry["episode_id"] for entry in catalog.json()}
+        assert "q3_budget_summary_v1" in episode_ids
+        assert "stakeholder_report_error_v1" in episode_ids
 
         start = client.post(
             "/api/v1/sessions",
@@ -323,7 +325,7 @@ def test_frontend_flow_describes_unified_research_routes() -> None:
         assert flow.status_code == 200
         payload = flow.json()
         assert payload["flow_id"] == "unified-desktop-flow"
-        assert payload["default_episode_id"] == "stakeholder_report_error_v1"
+        assert payload["default_episode_id"] == "q3_budget_summary_v1"
         assert [route["path"] for route in payload["routes"]] == [
             "/",
             "/simulation",
