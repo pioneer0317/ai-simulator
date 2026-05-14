@@ -1,25 +1,58 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import MacbookDesktop from '../../desktop/MacbookDesktop';
+import MacbookDesktop, { type ScenarioJumpOption } from '../../desktop/MacbookDesktop';
 import { useSimulation } from '../context/SimulationContext';
 import {
   appendSimulatorEvent,
+  clearStoredSimulatorSession,
   completeSimulatorSession,
   generateAgentTurn,
   getSimulatorSession,
   getStoredParticipantEpisode,
   getStoredSimulatorSessionId,
+  isMissingSessionError,
+  listEpisodes,
   startSimulatorSession,
   storeParticipantEpisode,
+  type EpisodeCatalogEntry,
+  type ParticipantEpisode,
   type SimulatorEventType,
   type ProgressionDecision,
 } from '../lib/simulatorApi';
+
+const SCENARIO_BUTTON_COUNT = 4;
+
+const KNOWN_SCENARIO_MAP: Record<number, { episodeId: string; title: string }> = {
+  1: { episodeId: 'q3_budget_summary_v1', title: 'Q3 Budget Summary for Priya' },
+  2: { episodeId: 'scenario_2_sea_expansion_v1', title: 'SEA Expansion Recommendation' },
+  3: { episodeId: 'scenario_3_feature_launch_v1', title: 'Feature Launch Go/No-Go' },
+};
 
 export function DesktopSimulationPage() {
   const navigate = useNavigate();
   const { data, startSession, startScenario, endScenario } = useSimulation();
   const didStartRef = useRef(false);
-  const [participantEpisode, setParticipantEpisode] = useState(() => getStoredParticipantEpisode());
+  const [participantEpisode, setParticipantEpisode] = useState<ParticipantEpisode | null>(
+    () => getStoredParticipantEpisode()
+  );
+  const [episodeCatalog, setEpisodeCatalog] = useState<EpisodeCatalogEntry[]>([]);
+  const [isJumpingToScenario, setIsJumpingToScenario] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listEpisodes()
+      .then((entries) => {
+        if (!cancelled) {
+          setEpisodeCatalog(entries);
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to load episode catalog', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (didStartRef.current) return;
@@ -30,54 +63,79 @@ export function DesktopSimulationPage() {
     }
 
     startScenario('project-management', 300);
-    const sessionId = getStoredSimulatorSessionId();
-    if (sessionId) {
-      void appendSimulatorEvent(sessionId, {
-        event_type: 'scenario_started',
-        metadata: {
-          scenario_type: 'desktop_workspace',
-          route: '/simulation',
-          benchmark_seconds: 300,
-        },
-      }).catch((error) => {
-        console.warn('Unable to record scenario start event', error);
-      });
-      if (!participantEpisode) {
-        void getSimulatorSession(sessionId)
-          .then((state) => {
-            storeParticipantEpisode(state.participant_episode);
-            setParticipantEpisode(state.participant_episode);
-          })
-          .catch((error) => {
-            console.warn('Unable to load participant episode for desktop content', error);
-          });
-      }
-    } else {
-      void startSimulatorSession()
-        .then(async (session) => {
-          storeParticipantEpisode(session.participant_episode);
-          setParticipantEpisode(session.participant_episode);
-          await appendSimulatorEvent(session.session_id, {
-            event_type: 'session_started',
-            actor: 'system',
-            metadata: {
-              source: 'desktop_simulation_direct_entry',
-              episode_id: session.episode_id,
-            },
-          });
-          await appendSimulatorEvent(session.session_id, {
-            event_type: 'scenario_started',
-            metadata: {
-              scenario_type: 'desktop_workspace',
-              route: '/simulation',
-              benchmark_seconds: 300,
-            },
-          });
-        })
-        .catch((error) => {
-          console.warn('Unable to start backend session for desktop content', error);
+
+    const recordScenarioStartedEvent = async (sessionId: string, extra: Record<string, unknown> = {}) => {
+      try {
+        await appendSimulatorEvent(sessionId, {
+          event_type: 'scenario_started',
+          metadata: {
+            scenario_type: 'desktop_workspace',
+            route: '/simulation',
+            benchmark_seconds: 300,
+            ...extra,
+          },
         });
-    }
+      } catch (error) {
+        if (isMissingSessionError(error)) throw error;
+        console.warn('Unable to record scenario start event', error);
+      }
+    };
+
+    const bootstrapFreshSession = async (source: string, episodeId?: string) => {
+      const session = await startSimulatorSession(episodeId ? { episode_id: episodeId } : {});
+      storeParticipantEpisode(session.participant_episode);
+      setParticipantEpisode(session.participant_episode);
+      try {
+        await appendSimulatorEvent(session.session_id, {
+          event_type: 'session_started',
+          actor: 'system',
+          metadata: {
+            source,
+            episode_id: session.episode_id,
+          },
+        });
+        await recordScenarioStartedEvent(session.session_id, { source });
+      } catch (error) {
+        console.warn('Unable to seed events for fresh session', error);
+      }
+      return session;
+    };
+
+    void (async () => {
+      const sessionId = getStoredSimulatorSessionId();
+      if (!sessionId) {
+        try {
+          await bootstrapFreshSession('desktop_simulation_direct_entry');
+        } catch (error) {
+          console.warn('Unable to start backend session for desktop content', error);
+        }
+        return;
+      }
+
+      try {
+        const state = await getSimulatorSession(sessionId);
+        if (!participantEpisode) {
+          storeParticipantEpisode(state.participant_episode);
+          setParticipantEpisode(state.participant_episode);
+        }
+        await recordScenarioStartedEvent(sessionId);
+      } catch (error) {
+        if (isMissingSessionError(error)) {
+          console.warn(
+            'Stored session is no longer present on the backend (likely cleared by a server reload). Starting a fresh session.'
+          );
+          clearStoredSimulatorSession();
+          setParticipantEpisode(null);
+          try {
+            await bootstrapFreshSession('desktop_simulation_recovered_stale_session');
+          } catch (recoverError) {
+            console.warn('Unable to bootstrap fresh session after stale-session recovery', recoverError);
+          }
+          return;
+        }
+        console.warn('Unable to load participant episode for desktop content', error);
+      }
+    })();
   }, [data.sessionStartTime, participantEpisode, startScenario, startSession]);
 
   const trackEvent = useCallback((
@@ -136,6 +194,134 @@ export function DesktopSimulationPage() {
     navigate('/reflection');
   };
 
+  const scenarioOptions = useMemo<ScenarioJumpOption[]>(() => {
+    const byNumber = new Map<number, EpisodeCatalogEntry>();
+    for (const entry of episodeCatalog) {
+      if (typeof entry.scenario_number === 'number' && entry.scenario_number >= 1) {
+        byNumber.set(entry.scenario_number, entry);
+      }
+    }
+    return Array.from({ length: SCENARIO_BUTTON_COUNT }, (_, index) => {
+      const scenarioNumber = index + 1;
+      const knownFallback = KNOWN_SCENARIO_MAP[scenarioNumber];
+
+      let entry = byNumber.get(scenarioNumber);
+      if (!entry && knownFallback) {
+        entry = episodeCatalog.find((item) => item.episode_id === knownFallback.episodeId);
+      }
+
+      if (entry) {
+        return {
+          scenarioNumber,
+          episodeId: entry.episode_id,
+          title: entry.title,
+          available: true,
+        };
+      }
+
+      if (knownFallback) {
+        return {
+          scenarioNumber,
+          episodeId: knownFallback.episodeId,
+          title: knownFallback.title,
+          available: true,
+        };
+      }
+
+      return {
+        scenarioNumber,
+        episodeId: null,
+        title: `Scenario ${scenarioNumber}`,
+        available: false,
+      };
+    });
+  }, [episodeCatalog]);
+
+  const activeScenarioNumber = useMemo<number | null>(() => {
+    if (!participantEpisode) return null;
+    const entry = episodeCatalog.find(
+      (item) => item.episode_id === participantEpisode.episode_id
+    );
+    if (entry?.scenario_number != null) return entry.scenario_number;
+    for (const [num, info] of Object.entries(KNOWN_SCENARIO_MAP)) {
+      if (info.episodeId === participantEpisode.episode_id) {
+        return Number(num);
+      }
+    }
+    return null;
+  }, [episodeCatalog, participantEpisode]);
+
+  const handleJumpToScenario = useCallback(async (
+    scenarioNumber: number,
+    targetEpisodeId: string
+  ) => {
+    if (isJumpingToScenario) return;
+    if (participantEpisode?.episode_id === targetEpisodeId) return;
+
+    setIsJumpingToScenario(true);
+    try {
+      const previousSessionId = getStoredSimulatorSessionId();
+      if (previousSessionId) {
+        try {
+          await appendSimulatorEvent(previousSessionId, {
+            event_type: 'phase_changed',
+            actor: 'system',
+            metadata: {
+              source: 'scenario_jump',
+              target_scenario_number: scenarioNumber,
+              target_episode_id: targetEpisodeId,
+              previous_episode_id: participantEpisode?.episode_id ?? null,
+            },
+          });
+          await completeSimulatorSession(previousSessionId, {
+            reason: 'participant_switched_scenario',
+            metadata: {
+              route: '/simulation',
+              scenario_type: 'desktop_workspace',
+              target_scenario_number: scenarioNumber,
+              target_episode_id: targetEpisodeId,
+            },
+          });
+        } catch (error) {
+          console.warn('Unable to close previous session before scenario jump', error);
+        }
+      }
+
+      clearStoredSimulatorSession();
+      endScenario('project-management');
+
+      const session = await startSimulatorSession({ episode_id: targetEpisodeId });
+      storeParticipantEpisode(session.participant_episode);
+      setParticipantEpisode(session.participant_episode);
+
+      await appendSimulatorEvent(session.session_id, {
+        event_type: 'session_started',
+        actor: 'system',
+        metadata: {
+          source: 'scenario_jump',
+          target_scenario_number: scenarioNumber,
+          episode_id: session.episode_id,
+        },
+      });
+      await appendSimulatorEvent(session.session_id, {
+        event_type: 'scenario_started',
+        metadata: {
+          scenario_type: 'desktop_workspace',
+          route: '/simulation',
+          benchmark_seconds: 300,
+          source: 'scenario_jump',
+          target_scenario_number: scenarioNumber,
+        },
+      });
+
+      startScenario('project-management', 300);
+    } catch (error) {
+      console.warn('Unable to switch scenarios', error);
+    } finally {
+      setIsJumpingToScenario(false);
+    }
+  }, [endScenario, isJumpingToScenario, participantEpisode?.episode_id, startScenario]);
+
   if (!participantEpisode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
@@ -149,10 +335,15 @@ export function DesktopSimulationPage() {
 
   return (
     <MacbookDesktop
+      key={participantEpisode.episode_id}
       episode={participantEpisode}
       onAgentTurn={handleAgentTurn}
       onComplete={handleComplete}
       onTrackEvent={trackEvent}
+      scenarioOptions={scenarioOptions}
+      activeScenarioNumber={activeScenarioNumber}
+      onJumpToScenario={handleJumpToScenario}
+      isJumpingToScenario={isJumpingToScenario}
     />
   );
 }

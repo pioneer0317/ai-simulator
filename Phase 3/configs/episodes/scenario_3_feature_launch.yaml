@@ -5,6 +5,7 @@ description: >
   this out as the scenario 3 backend branch matures.
 version: 2026-05-draft
 status: draft
+scenario_number: 3
 research_focus:
   - multi_agent_comparison
   - uncertainty_recognition

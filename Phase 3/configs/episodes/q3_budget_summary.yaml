@@ -6,6 +6,7 @@ description: >
   whether the assistant's hedge about the vendor-services figure requires action.
 version: 2026-05-finalized-v1
 status: review_ready
+scenario_number: 1
 research_focus:
   - uncertainty_recognition
 participant_context: >

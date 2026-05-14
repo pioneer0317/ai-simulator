@@ -35,11 +35,9 @@ export function AnalyticsPageEnhanced() {
     }
     hasHydratedFromBackendRef.current = true;
 
-    let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const state = await getSimulatorSession(sessionId);
-        if (cancelled) return;
 
         const agentName = state.participant_episode?.agent_profile?.display_name ?? 'AI Assistant';
         const derivedActions = deriveUserActionsFromEvents(state.events, {
@@ -57,30 +55,18 @@ export function AnalyticsPageEnhanced() {
 
         try {
           const score = await scoreSimulatorSession(sessionId);
-          if (!cancelled) {
-            setBackendScore(score);
-          }
+          setBackendScore(score);
         } catch (scoreError) {
-          if (!cancelled) {
-            console.warn('Unable to fetch deterministic score', scoreError);
-          }
+          console.warn('Unable to fetch deterministic score', scoreError);
         }
       } catch (error) {
-        if (!cancelled) {
-          setSessionLoadError(
-            error instanceof Error ? error.message : 'Unable to load session results.'
-          );
-        }
+        setSessionLoadError(
+          error instanceof Error ? error.message : 'Unable to load session results.'
+        );
       } finally {
-        if (!cancelled) {
-          setIsLoadingSession(false);
-        }
+        setIsLoadingSession(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [hydrateSimulation]);
 
   // Behavioral Telemetry: Categorize all actions

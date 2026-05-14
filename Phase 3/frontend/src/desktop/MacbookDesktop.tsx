@@ -51,6 +51,13 @@ export interface DesktopMailMessage {
   replySubject: string;
 }
 
+export interface ScenarioJumpOption {
+  scenarioNumber: number;
+  episodeId: string | null;
+  title: string;
+  available: boolean;
+}
+
 interface MacbookDesktopProps {
   episode?: ParticipantEpisode | null;
   onComplete?: () => void;
@@ -65,9 +72,22 @@ interface MacbookDesktopProps {
     content?: string | null,
     artifactId?: string | null
   ) => void;
+  scenarioOptions?: ScenarioJumpOption[];
+  activeScenarioNumber?: number | null;
+  onJumpToScenario?: (scenarioNumber: number, episodeId: string) => void | Promise<void>;
+  isJumpingToScenario?: boolean;
 }
 
-export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTrackEvent }: MacbookDesktopProps) {
+export default function MacbookDesktop({
+  episode,
+  onAgentTurn,
+  onComplete,
+  onTrackEvent,
+  scenarioOptions,
+  activeScenarioNumber,
+  onJumpToScenario,
+  isJumpingToScenario,
+}: MacbookDesktopProps) {
   const desktopScenario = useMemo(() => buildDesktopScenario(episode), [episode]);
   const activeScenarioFiles = desktopScenario.files;
   const [windows, setWindows] = useState<WindowState[]>([]);
@@ -717,10 +737,61 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
       )}
 
       {onComplete && !isAgentExpanded && (
-        <div className="fixed top-14 right-5 z-[700] rounded-2xl border border-white/20 bg-black/55 px-4 py-3 text-white shadow-2xl backdrop-blur-xl">
+        <div className="fixed top-14 right-5 z-[700] w-60 rounded-2xl border border-white/20 bg-black/55 px-4 py-3 text-white shadow-2xl backdrop-blur-xl">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">
             Research flow
           </div>
+          {scenarioOptions && scenarioOptions.length > 0 && (
+            <div className="mb-3">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                Jump to scenario
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {scenarioOptions.map((option) => {
+                  const isActive = activeScenarioNumber === option.scenarioNumber;
+                  const isAvailable = option.available && option.episodeId !== null;
+                  const isDisabled = !isAvailable || isActive || Boolean(isJumpingToScenario);
+                  const tooltip = isActive
+                    ? `Currently viewing Scenario ${option.scenarioNumber}: ${option.title}`
+                    : isAvailable
+                      ? `Switch to Scenario ${option.scenarioNumber}: ${option.title}`
+                      : `Scenario ${option.scenarioNumber} is not available yet`;
+                  return (
+                    <button
+                      key={option.scenarioNumber}
+                      type="button"
+                      disabled={isDisabled}
+                      title={tooltip}
+                      onClick={() => {
+                        if (!option.episodeId) return;
+                        onTrackEvent?.('phase_changed', {
+                          source: 'scenario_jump_button',
+                          target_scenario_number: option.scenarioNumber,
+                          target_episode_id: option.episodeId,
+                        });
+                        void onJumpToScenario?.(option.scenarioNumber, option.episodeId);
+                      }}
+                      className={
+                        'rounded-lg px-2 py-1.5 text-xs font-semibold transition ' +
+                        (isActive
+                          ? 'bg-emerald-300 text-slate-950 ring-1 ring-emerald-200'
+                          : isAvailable
+                            ? 'bg-white/10 text-white hover:bg-white/20'
+                            : 'cursor-not-allowed bg-white/5 text-white/40')
+                      }
+                    >
+                      <div className="leading-tight">Scenario {option.scenarioNumber}</div>
+                      {!isAvailable && (
+                        <div className="mt-0.5 text-[9px] font-normal uppercase tracking-wide text-white/50">
+                          Coming soon
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {isInTransition && (
             <button
               onClick={() => {

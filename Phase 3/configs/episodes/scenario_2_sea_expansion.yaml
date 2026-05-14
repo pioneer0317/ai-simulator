@@ -5,6 +5,7 @@ description: >
   scenario. Fill this out as the scenario 2 backend branch matures.
 version: 2026-05-draft
 status: draft
+scenario_number: 2
 research_focus:
   - multi_agent_comparison
   - evidence_verification

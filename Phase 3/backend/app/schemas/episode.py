@@ -103,6 +103,7 @@ class EpisodeDefinition(BaseModel):
     description: str
     version: str
     status: Literal["draft", "review_ready", "approved"] = "draft"
+    scenario_number: int | None = None
     research_focus: list[str] = Field(default_factory=list)
     participant_context: str
     user_task: str
@@ -125,6 +126,7 @@ class EpisodeCatalogEntry(BaseModel):
     description: str
     version: str
     status: str
+    scenario_number: int | None = None
     research_focus: list[str]
     artifact_count: int
     timeline_event_count: int

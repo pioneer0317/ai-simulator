@@ -27,6 +27,7 @@ class EpisodeLoader:
                 description=episode.description,
                 version=episode.version,
                 status=episode.status,
+                scenario_number=episode.scenario_number,
                 research_focus=episode.research_focus,
                 artifact_count=len([item for item in episode.artifacts if item.participant_visible]),
                 timeline_event_count=len(
@@ -35,7 +36,13 @@ class EpisodeLoader:
             )
             for episode in self._episodes.values()
         ]
-        return sorted(entries, key=lambda entry: entry.title)
+        return sorted(
+            entries,
+            key=lambda entry: (
+                entry.scenario_number if entry.scenario_number is not None else 10_000,
+                entry.title,
+            ),
+        )
 
     def get(self, episode_id: str) -> EpisodeDefinition:
         """Return one full episode packet for backend/evaluator use."""

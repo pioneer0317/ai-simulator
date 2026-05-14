@@ -177,6 +177,18 @@ export interface AgentTurnResponse {
   error?: string | null;
 }
 
+export interface EpisodeCatalogEntry {
+  episode_id: string;
+  title: string;
+  description: string;
+  version: string;
+  status: string;
+  scenario_number?: number | null;
+  research_focus: string[];
+  artifact_count: number;
+  timeline_event_count: number;
+}
+
 export interface AdminSessionSummary {
   session_id: string;
   participant_run_id: string;
@@ -376,6 +388,12 @@ export async function listAdminSessions(): Promise<AdminSessionSummary[]> {
   });
 }
 
+export async function listEpisodes(): Promise<EpisodeCatalogEntry[]> {
+  return request<EpisodeCatalogEntry[]>('/episodes', {
+    method: 'GET',
+  });
+}
+
 export async function getSimulatorSession(sessionId: string): Promise<SessionStateResponse> {
   return request<SessionStateResponse>(`/sessions/${sessionId}`, {
     method: 'GET',
@@ -425,6 +443,21 @@ export function getStoredParticipantEpisode(): ParticipantEpisode | null {
   }
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export function isMissingSessionError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status !== 404) return false;
+  return /session/i.test(error.message) && /not\s*found/i.test(error.message);
+}
+
 async function request<T = unknown>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -436,7 +469,7 @@ async function request<T = unknown>(path: string, init: RequestInit): Promise<T>
 
   if (!response.ok) {
     const message = await extractErrorMessage(response);
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return (await response.json()) as T;
