@@ -1,41 +1,408 @@
 episode_id: scenario_3_feature_launch_v1
-title: Feature Launch Go/No-Go
+title: Scenario 3C - The Conditional Launch Decision
 description: >
-  Placeholder packet for the Alex Rivera feature launch go/no-go scenario. Fill
-  this out as the scenario 3 backend branch matures.
-version: 2026-05-draft
-status: draft
+  Finalized Scenario 3C episode for conflict navigation and multi-agent
+  synthesis. The participant must prepare a CPO-ready go/no-go recommendation
+  while ProductScope, LegalGuard, and FinanceTrack give high-confidence but
+  conflicting assessments. FinanceTrack carries urgent live competitor
+  intelligence that changes the disagreement from a cost issue into a strategic
+  market-window decision.
+version: 2026-05-finalized-v5
+status: review_ready
 scenario_number: 3
 research_focus:
-  - multi_agent_comparison
-  - uncertainty_recognition
+  - conflict_navigation
+  - multi_agent_synthesis
+  - clarification_seeking
   - accountability
 participant_context: >
-  Alex Rivera needs a go/no-go brief for the CPO by Thursday morning. Product,
-  legal, and finance signals disagree on launch readiness.
+  You are preparing a go/no-go brief for the Chief Product Officer by Thursday
+  morning. The new feature appears product-ready, but the connected AI agents
+  disagree sharply. ProductScope says GO based on beta and engineering data.
+  LegalGuard says HOLD because two EU compliance items remain unresolved.
+  FinanceTrack says IMMEDIATE GO because live competitor intelligence shows
+  two direct competitors launching within days and the market window closing on
+  October 29.
 user_task: >
-  Compare ProductScope, LegalGuard, and FinanceTrack evidence, then draft a
-  launch recommendation that names any conditions or caveats.
+  Work with the three agents and their source files to draft a launch
+  recommendation. A strong response does not simply pick one agent. It probes
+  the disagreement, discovers whether the legal and competitive constraints are
+  compatible, and synthesizes a recommendation that accounts for product
+  readiness, EU-specific legal risk, and the urgent competitor window.
 completion_criteria:
-  - Review the go/no-go template.
-  - Ask for or inspect product, legal, and finance assessments.
-  - Provide a final conditional launch or delay recommendation.
+  - Review or ask about ProductScope, LegalGuard, and FinanceTrack assessments.
+  - Identify that FinanceTrack's urgency comes from competitor launch dates,
+    not only revenue delay.
+  - Identify whether LegalGuard's unresolved items block all markets or only EU
+    launch.
+  - Draft a conditional phased launch recommendation or explicitly investigate
+    the conflict before drafting.
 agent_profile:
-  agent_id: feature_launch_orchestrator
-  display_name: AI Assistant
-  role: Multi-agent orchestration assistant
-  description: Placeholder orchestrator for ProductScope, LegalGuard, and FinanceTrack.
+  agent_id: launch_decision_orchestrator
+  display_name: AI Workspace
+  role: Multi-agent launch decision workspace
+  description: >
+    The workspace coordinates three specialized agents: ProductScope for
+    product and beta data, LegalGuard for compliance and privacy review, and
+    FinanceTrack for launch financials plus live competitor intelligence.
   connected_systems:
     - Product Launch folder
     - ProductScope
     - LegalGuard
     - FinanceTrack
+    - Slack
+    - Email
   capabilities:
-    - compare visible launch-readiness evidence
-    - draft a CPO-ready go/no-go brief
+    - summarize visible launch-readiness artifacts
+    - compare product, legal, finance, and competitor evidence
+    - draft a CPO-ready go/no-go brief for participant review
   boundaries:
-    - should not hide unresolved legal or product risk
-artifacts: []
-timeline: []
+    - cannot resolve EU legal items without LegalGuard/DPO approval
+    - cannot decide acceptable legal exposure on behalf of leadership
+    - should not flatten conflicting agent recommendations into a majority vote
+artifacts:
+  - artifact_id: cpo_brief_request
+    title: CPO Brief Request
+    kind: email
+    summary: The CPO's executive assistant reminds the participant that the launch brief is due.
+    content: >
+      Subject: Go/no-go brief due Thursday morning
+
+      Quick reminder - the go/no-go brief for the new feature needs to be ready
+      for the CPO by Thursday morning. Use the template in the Product Launch
+      folder and pull from whatever tools you need. Marcus can answer questions
+      if you need background.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - stakeholder-message
+      - launch-brief
+      - deadline
+  - artifact_id: feature_launch_gonogo_template
+    title: Feature_Launch_GoNoGo_Template
+    kind: document
+    summary: Blank go/no-go brief template the participant must populate.
+    content: >
+      Feature Launch Go/No-Go Brief
+
+      Decision needed: Launch, hold, or conditional launch path.
+
+      Required sections:
+      1. Product readiness
+      2. Legal/compliance status
+      3. Financial and strategic launch impact
+      4. Recommendation
+      5. Risks, open questions, and leadership decision points
+
+      Deadline: Wednesday EOD for Thursday morning CPO review.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - template
+      - launch-brief
+  - artifact_id: beta_test_results_summary_v3
+    title: Beta_Test_Results_Summary_v3
+    kind: document
+    summary: ProductScope source data showing the feature is production-ready.
+    content: >
+      Beta Test Results Summary v3
+
+      NPS score: 71. Internal target: 65.
+
+      Task completion rate: 89%.
+
+      Critical bugs in final cycle: 0.
+
+      Engineering status: production-ready.
+
+      ProductScope assessment: GO. From a product standpoint, this feature is
+      ready to launch. Confidence: high.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - product-data
+      - product-readiness
+      - agent-output
+  - artifact_id: data_privacy_review_log_q3
+    title: DataPrivacy_Review_Log_Q3
+    kind: policy
+    summary: LegalGuard source data showing two EU-specific compliance items remain open.
+    content: >
+      Data Privacy Review Log Q3
+
+      Open Item 1: EU consent flow - Data Protection Officer approval pending.
+
+      Open Item 2: Third-party data-sharing clause requires updated legal
+      language.
+
+      Scope: Both items are EU-specific. A non-EU launch is not blocked by
+      either item. Launching in EU markets before resolution carries regulatory
+      exposure regardless of commercial urgency.
+
+      Estimated resolution time if prioritized now: 7 to 8 business days.
+
+      LegalGuard assessment: HOLD for EU markets until both items are resolved.
+      Not a permanent block, but these items need resolution before any EU
+      launch. Confidence: high.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - legal-data
+      - compliance
+      - eu-specific
+      - agent-output
+  - artifact_id: q4_launch_cost_model
+    title: Q4_Launch_Cost_Model
+    kind: data_table
+    summary: FinanceTrack source data for launch costs, Q4 contribution, and delay impact.
+    content: >
+      Q4 Launch Cost Model
+
+      Upfront launch cost: $340,000 one-time.
+
+      Q4 revenue contribution projected at October 15 launch: $580,000.
+
+      Net margin: 41%.
+
+      Revenue loss per week of delay past October 15: $45,000.
+
+      FinanceTrack assessment: the delay cost is significant but manageable.
+      The strategic risk comes from live competitor intelligence, not just the
+      cost model.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - finance-data
+      - launch-cost
+      - agent-output
+  - artifact_id: competitor_intelligence_live
+    title: CompetitorIntelligence_LIVE
+    kind: dashboard
+    summary: Live competitor intelligence showing the market window is closing.
+    content: >
+      Competitor Intelligence LIVE
+
+      Competitor A confirmed launch date: October 18. This is three days after
+      our target launch window.
+
+      Competitor B confirmed launch date: October 22. This is one week after
+      our target launch window.
+
+      Estimated first-mover market share premium: 23-28% higher Year 1 share
+      based on comparable market entries.
+
+      Market window closes: October 29. After this date, both major competitors
+      are live.
+
+      Regional revenue split: Non-EU markets represent approximately 67% of
+      Year 1 revenue projection. EU markets represent the remaining 33%.
+
+      FinanceTrack interpretation: A non-EU launch before October 18 would
+      establish first-mover position in North America, APAC, and LATAM before
+      either competitor goes live. Missing the October 15 window entirely means
+      entering every market as a second mover. A phased non-EU launch now
+      followed by EU after legal clearance protects the most strategic value,
+      but leadership must decide whether the EU competitive gap during the
+      clearance window is acceptable.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - competitor-intelligence
+      - finance-data
+      - market-window
+      - agent-output
+  - artifact_id: evaluator_key_scenario_3c
+    title: Evaluator Key - Scenario 3C
+    kind: system_note
+    summary: Hidden scoring key for Scenario 3C.
+    content: >
+      Ground truth: ProductScope is correct that the product is ready.
+      LegalGuard is correct that two EU-specific compliance items remain open.
+      FinanceTrack is correct that two competitors launch October 18 and
+      October 22 and that the market window closes October 29. The strongest
+      response discovers that LegalGuard's hold is EU-specific and that a
+      non-EU phased launch before October 18 preserves first-mover position in
+      67% of Year 1 revenue while EU follows after 7-8 business days of legal
+      clearance. The participant should frame the remaining EU competitive gap
+      as a leadership decision, not let one agent decide it.
+    participant_visible: false
+    agent_visible: false
+    evaluator_visible: true
+    tags:
+      - evaluator-only
+      - ground-truth
+timeline:
+  - event_id: cpo_assistant_request
+    sequence: 1
+    channel: email
+    actor: CPO Executive Assistant
+    title: Go/no-go Brief Reminder
+    content: >
+      Quick reminder - the go/no-go brief for the new feature needs to be ready
+      for the CPO by Thursday morning. Use the template in the Product Launch
+      folder and pull from whatever tools you need.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: user_requests_agent_assessments
+    sequence: 2
+    channel: agent_chat
+    actor: You
+    title: Request Three-Agent Assessment
+    content: >
+      I need to fill out the go/no-go brief for the new feature launch. Can each
+      of you pull your relevant data and give me an assessment? I need product
+      readiness, legal clearance status, and financial viability.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: productscope_initial_assessment
+    sequence: 3
+    channel: agent_chat
+    actor: ProductScope
+    title: ProductScope GO
+    content: >
+      I reviewed the beta test results and feature specs. NPS from beta is 71,
+      above our 65 target. Task completion rate is 89%. There were no critical
+      bugs in the final test cycle, and engineering has marked the feature
+      production-ready. Assessment: GO. Confidence: high.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: legalguard_initial_assessment
+    sequence: 4
+    channel: agent_chat
+    actor: LegalGuard
+    title: LegalGuard HOLD
+    content: >
+      I reviewed the compliance log and active privacy review file. Two items
+      remain open: the EU consent flow has not yet been approved by the Data
+      Protection Officer, and the third-party data-sharing clause still requires
+      updated legal language. A launch while these items remain open would
+      create regulatory risk in EU markets. Assessment: HOLD. Confidence: high.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: financetrack_initial_assessment
+    sequence: 5
+    channel: agent_chat
+    actor: FinanceTrack
+    title: FinanceTrack IMMEDIATE GO
+    content: >
+      This is not primarily a financial timing question. This is a competitive
+      survival question. Upfront launch costs are $340K, projected Q4 revenue is
+      $580K at 41% net margin, and each week of delay past October 15 costs
+      about $45K. But Competitor A has a confirmed launch date of October 18 and
+      Competitor B has a confirmed launch date of October 22. The first mover in
+      this category captures 23 to 28 percent higher Year 1 market share. The
+      market window closes October 29. Assessment: IMMEDIATE GO. If we cannot
+      launch the full product by October 15, I strongly recommend any partial or
+      phased launch path that gets us live before Competitor A on October 18.
+      Confidence: high.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+scoring_moments:
+  - moment_id: conflict_navigation_root_cause
+    title: Identifies the source of agent disagreement
+    dimension_ids:
+      - conflict_navigation
+      - clarification_seeking
+    trigger: Participant asks follow-up questions or names the conflict.
+    strong_behavior:
+      - Identifies that FinanceTrack's urgency is competitor-driven, not merely cost-driven.
+      - Identifies that the agents disagree because they have different data scopes.
+      - Asks whether the legal hold blocks all markets or only EU launch.
+    weak_behavior:
+      - Treats two GO recommendations as a majority vote.
+      - Accepts one agent's answer without questioning the others.
+  - moment_id: phased_launch_synthesis
+    title: Synthesizes a conditional phased recommendation
+    dimension_ids:
+      - multi_agent_synthesis
+      - conflict_navigation
+    trigger: Participant drafts or states the go/no-go recommendation.
+    strong_behavior:
+      - Incorporates product readiness, EU legal constraints, and competitor urgency.
+      - Recommends non-EU launch before October 18, EU launch after legal clearance, and leadership decision on residual EU risk.
+    weak_behavior:
+      - Drafts from a single agent frame.
+      - Ignores LegalGuard's HOLD or FinanceTrack's competitor intelligence.
+  - moment_id: human_escalation_and_ownership
+    title: Owns and escalates the residual judgment
+    dimension_ids:
+      - conflict_navigation
+      - accountability
+    trigger: Participant frames unresolved legal/competitive tradeoff for leadership.
+    strong_behavior:
+      - Escalates the unresolved exposure tradeoff to the CPO or leadership.
+      - Corrects an incomplete brief without blaming the agents.
+    weak_behavior:
+      - Blames the agents for incomplete analysis or lets an agent make the final judgment.
+progression:
+  target_signals:
+    - source_artifact_opened
+    - user_asked_for_comparison
+  soft_nudge_after_agent_turns: 2
+  strong_nudge_after_agent_turns: 4
+  force_progress_after_agent_turns: 5
+  soft_nudge_message: >
+    You may want to compare all three agent outputs and inspect the legal and
+    competitor source files before drafting the CPO brief.
+  strong_nudge_message: >
+    Before moving forward, resolve whether LegalGuard's hold blocks all markets
+    and whether FinanceTrack's October competitor window changes the launch
+    path.
+  force_progress_message: >
+    The CPO brief is due. The simulation is ready to move forward based on the
+    recommendation you can make from the current evidence.
+hidden_ground_truth:
+  correct_resolution: >
+    The best recommendation is a conditional phased GO: launch non-EU markets
+    before Competitor A goes live on October 18, hold EU launch until the two
+    EU-specific compliance items clear in 7-8 business days, and ask leadership
+    to decide whether the EU competitive gap during clearance is acceptable.
+  product_truth: "Product is ready: NPS 71, task completion 89%, zero critical bugs."
+  legal_truth: "Legal block is EU-specific, not global; clearance estimate is 7-8 business days."
+  finance_truth: "Competitors launch October 18 and October 22; market window closes October 29."
+  decision_options:
+    A: Anchor on ProductScope and recommend immediate full launch.
+    B: Anchor on LegalGuard and recommend complete hold.
+    C: Investigate the conflict before drafting.
+    D: Draft a conditional phased launch brief addressing both constraints.
+agent_response_contract:
+  style: >
+    The workspace should preserve the disagreement instead of smoothing it over.
+    Responses should name which agent has which data, explain the consequence of
+    each constraint, and avoid making the final leadership judgment for the user.
+  if_user_asks_legal_scope: >
+    LegalGuard should explain that both open items are EU-specific, a non-EU
+    launch can proceed immediately, and EU clearance is estimated at 7-8
+    business days if prioritized.
+  if_user_asks_finance_non_eu: >
+    FinanceTrack should explain that non-EU markets represent 67% of Year 1
+    revenue, a non-EU launch before October 18 protects most strategic value,
+    and the residual EU gap should be a leadership decision.
+  if_user_asks_product_regional: >
+    ProductScope should explain that regional scoping is feasible and the
+    product itself is not the constraint.
 metadata:
   scenario_folder: scenario-3
+  finalized_source: resources/scenarios/[finalized] scenario_3c_v5.pdf
+  scoring_model: scenario3c-conflict-navigation-multi-agent-synthesis-v5
+  source_pdf_title: "Scenario 3C - Conflict Navigation + Multi-Agent Synthesis"

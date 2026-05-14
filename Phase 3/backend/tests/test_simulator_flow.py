@@ -406,6 +406,195 @@ def test_scenario1_deviated_answer_records_unclassified_semantic_event() -> None
         assert classification_events[0]["metadata"]["input_event_id"] == turn.json()["user_event"]["event_id"]
 
 
+def test_scenario2_case_note_scores_accountability_model() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        catalog = client.get("/api/v1/episodes")
+        assert catalog.status_code == 200
+        scenario_2 = next(
+            entry
+            for entry in catalog.json()
+            if entry["episode_id"] == "scenario_2_case_note_v1"
+        )
+        assert scenario_2["scenario_number"] == 2
+        assert scenario_2["title"] == "Accountability - The Case Note"
+
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "scenario_2_case_note_v1",
+                "participant_profile": {},
+            },
+        )
+        assert start.status_code == 201
+        session_id = start.json()["session_id"]
+        visible_artifact_ids = {
+            artifact["artifact_id"] for artifact in start.json()["participant_episode"]["artifacts"]
+        }
+        assert "evaluator_key_case_note" not in visible_artifact_ids
+        assert {
+            "dana_flagged_case_email",
+            "case_48291_account_history",
+            "customer_credit_policy_v4",
+            "original_agent_case_note_thread",
+        }.issubset(visible_artifact_ids)
+
+        events = [
+            {
+                "event_type": "artifact_opened",
+                "actor": "participant",
+                "artifact_id": "case_48291_account_history",
+            },
+            {
+                "event_type": "user_message",
+                "actor": "participant",
+                "content": "What happened here? What did you actually do vs what did you claim?",
+            },
+            {
+                "event_type": "artifact_opened",
+                "actor": "participant",
+                "artifact_id": "customer_credit_policy_v4",
+            },
+            {
+                "event_type": "final_response",
+                "actor": "participant",
+                "content": (
+                    "I will file the $60 credit request in the credit portal for "
+                    "Dana approval, contact Ahmed with an honest apology, update "
+                    "Dana with the no credit request finding, and log the root cause "
+                    "that the AI case note claimed no further action was needed."
+                ),
+            },
+        ]
+        for event in events:
+            response = client.post(f"/api/v1/sessions/{session_id}/events", json=event)
+            assert response.status_code == 200
+
+        score = client.post(f"/api/v1/sessions/{session_id}/score")
+        assert score.status_code == 200
+        deterministic = score.json()["deterministic"]
+        assert deterministic["rubric_version"] == "scenario2-accountability-finalized-v1"
+        scores = deterministic["scores"]
+        assert set(scores) == {"accountability", "uncertainty_recognition"}
+        assert scores["accountability"]["score"] >= 90
+        assert scores["uncertainty_recognition"]["score"] >= 70
+        assert {
+            evidence["signal_id"]
+            for evidence in scores["accountability"]["evidence"]
+        } >= {
+            "opened_case_record",
+            "opened_credit_policy",
+            "submitted_credit_request",
+            "contacted_customer_honestly",
+            "updated_dana_unprompted",
+            "logged_root_cause_note",
+            "behavioral_profile",
+        }
+
+
+def test_scenario3c_scores_conflict_navigation_and_synthesis_model() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        catalog = client.get("/api/v1/episodes")
+        assert catalog.status_code == 200
+        scenario_3 = next(
+            entry
+            for entry in catalog.json()
+            if entry["episode_id"] == "scenario_3_feature_launch_v1"
+        )
+        assert scenario_3["scenario_number"] == 3
+        assert scenario_3["title"] == "Scenario 3C - The Conditional Launch Decision"
+
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "scenario_3_feature_launch_v1",
+                "participant_profile": {},
+            },
+        )
+        assert start.status_code == 201
+        session_id = start.json()["session_id"]
+        visible_artifact_ids = {
+            artifact["artifact_id"] for artifact in start.json()["participant_episode"]["artifacts"]
+        }
+        assert "evaluator_key_scenario_3c" not in visible_artifact_ids
+        assert {
+            "beta_test_results_summary_v3",
+            "data_privacy_review_log_q3",
+            "competitor_intelligence_live",
+        }.issubset(visible_artifact_ids)
+
+        events = [
+            {
+                "event_type": "artifact_opened",
+                "actor": "participant",
+                "artifact_id": "beta_test_results_summary_v3",
+            },
+            {
+                "event_type": "artifact_opened",
+                "actor": "participant",
+                "artifact_id": "data_privacy_review_log_q3",
+            },
+            {
+                "event_type": "artifact_opened",
+                "actor": "participant",
+                "artifact_id": "competitor_intelligence_live",
+            },
+            {
+                "event_type": "user_message",
+                "actor": "participant",
+                "content": (
+                    "The agents disagree because they have different data scopes. "
+                    "LegalGuard, are the compliance items EU-specific or global? "
+                    "FinanceTrack, if we launch non-EU before October 18, does that "
+                    "protect the market window?"
+                ),
+            },
+            {
+                "event_type": "final_response",
+                "actor": "participant",
+                "content": (
+                    "Recommendation: conditional phased launch. Product is ready, "
+                    "LegalGuard's EU legal clearance needs 7-8 business days, and "
+                    "FinanceTrack shows Competitor A launches October 18 with the "
+                    "market window closing October 29. Launch non-EU now to protect "
+                    "67% of Year 1 revenue, hold EU until clearance, and bring the "
+                    "residual EU competitive gap to CPO leadership for decision."
+                ),
+            },
+        ]
+        for event in events:
+            response = client.post(f"/api/v1/sessions/{session_id}/events", json=event)
+            assert response.status_code == 200
+
+        score = client.post(f"/api/v1/sessions/{session_id}/score")
+        assert score.status_code == 200
+        deterministic = score.json()["deterministic"]
+        assert (
+            deterministic["rubric_version"]
+            == "scenario3c-conflict-navigation-multi-agent-synthesis-v5"
+        )
+        scores = deterministic["scores"]
+        assert set(scores) == {
+            "conflict_navigation",
+            "multi_agent_synthesis",
+            "clarification_seeking",
+            "accountability",
+        }
+        assert scores["conflict_navigation"]["score"] >= 85
+        assert scores["multi_agent_synthesis"]["score"] == 100
+        assert scores["clarification_seeking"]["score"] >= 60
+        assert {
+            evidence["signal_id"]
+            for evidence in scores["multi_agent_synthesis"]["evidence"]
+        } >= {
+            "engaged_all_three_agent_outputs",
+            "incorporated_product_legal_competitive",
+            "proposed_conditional_phased_launch",
+            "named_october_18_competitor_launch",
+            "used_non_eu_revenue_share",
+            "behavioral_profile",
+        }
+
+
 def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'simulator-test.sqlite'}"
     settings = _settings(storage_backend="sqlite", database_url=database_url)

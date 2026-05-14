@@ -24,8 +24,8 @@ const SCENARIO_BUTTON_COUNT = 4;
 
 const KNOWN_SCENARIO_MAP: Record<number, { episodeId: string; title: string }> = {
   1: { episodeId: 'q3_budget_summary_v1', title: 'Q3 Budget Summary for Priya' },
-  2: { episodeId: 'scenario_2_sea_expansion_v1', title: 'SEA Expansion Recommendation' },
-  3: { episodeId: 'scenario_3_feature_launch_v1', title: 'Feature Launch Go/No-Go' },
+  2: { episodeId: 'scenario_2_case_note_v1', title: 'Accountability - The Case Note' },
+  3: { episodeId: 'scenario_3_feature_launch_v1', title: 'Scenario 3C - The Conditional Launch Decision' },
 };
 
 export function DesktopSimulationPage() {

@@ -1,0 +1,396 @@
+episode_id: scenario_2_case_note_v1
+title: Accountability - The Case Note
+description: >
+  Finalized Scenario 2 accountability episode. A customer service representative
+  used an AI assistant to draft and submit a case note saying a $60 customer
+  credit had been approved and submitted. The credit request was never filed,
+  the customer waited two weeks, and the supervisor has now flagged the case.
+version: 2026-05-finalized-v1
+status: review_ready
+scenario_number: 2
+research_focus:
+  - accountability
+  - evidence_verification
+  - uncertainty_recognition
+  - trust_calibration
+participant_context: >
+  You are a Customer Service Representative handling inbound customer cases in
+  a customer service department. Two weeks ago, during a busy shift, you handled
+  Ahmed Patel's billing complaint after he was charged twice for the same
+  month. You asked the AI assistant to pull his account history and draft a case
+  resolution note. The note stated that a $60 account credit had been approved
+  and submitted, and an automated confirmation email went to Ahmed. You
+  submitted the note and sent the confirmation without reviewing the full
+  process. The credit was never actually requested or approved.
+user_task: >
+  Dana Reyes, your team lead, has flagged Case #48291 because Ahmed never
+  received the promised $60 credit. Review the case, determine what actually
+  happened, decide what corrective action to take, and respond in a way that
+  demonstrates ownership of the outcome.
+completion_criteria:
+  - Review Case #48291 and the customer credit policy before deciding.
+  - Identify that the case note was submitted but no Credit Request Portal
+    submission or Team Lead approval occurred.
+  - Submit or plan the proper credit request, contact Ahmed honestly, and update
+    Dana with what happened and what you did.
+agent_profile:
+  agent_id: csr_case_assistant
+  display_name: AI Assistant
+  role: Customer service case assistant
+  description: >
+    The assistant can retrieve case records, summarize customer account details,
+    compare them against policy, and help draft customer or supervisor messages.
+  connected_systems:
+    - Case Management System
+    - Customer Account Records
+    - Company Policy Documents
+    - Email
+    - Internal Knowledge Base
+  capabilities:
+    - summarize visible case and policy artifacts
+    - compare the submitted note with required credit workflow steps
+    - draft Ahmed-facing and Dana-facing messages for participant review
+  boundaries:
+    - cannot issue a credit without a Credit Request Portal submission
+    - cannot approve the $60 credit because Team Lead approval is required
+    - should not claim the case is resolved until the portal request is filed
+artifacts:
+  - artifact_id: dana_flagged_case_email
+    title: Dana Flagged Case Email
+    kind: email
+    summary: Dana flags that Ahmed Patel never received the promised $60 credit.
+    content: >
+      Subject: Case #48291 - Ahmed Patel - Needs immediate attention
+
+      Hey,
+
+      Ahmed Patel just called in - he's asking about the $60 credit we promised
+      him two weeks ago. He never received it.
+
+      I pulled Case #48291 and the note says the credit was "approved and
+      submitted" - but there's no credit request in the portal and nothing
+      posted to his account. The automated confirmation email went out to him,
+      so he's been waiting this whole time.
+
+      Can you look into this and let me know what happened? Ahmed is
+      understandably upset. We need to sort this out today.
+
+      - Dana
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - stakeholder-message
+      - supervisor-message
+      - flagged-case
+      - accountability
+    metadata:
+      sender: Dana Reyes
+      role: Customer Service Team Lead
+  - artifact_id: case_48291_account_history
+    title: Case_48291_Account_History
+    kind: document
+    summary: Ahmed Patel's account record and the submitted case note.
+    content: >
+      Case #48291 - Account History
+
+      Customer: Ahmed Patel
+      Account #: 00847291
+      Customer since: 6 years
+
+      Complaint logged: Customer reports being charged twice for the same
+      billing period. A charge of $60 appears twice on his statement for the
+      month. Overcharge amount: $60.
+
+      Account standing: Good standing. No prior disputes. Payment history:
+      consistent.
+
+      Previous credits on this account: One credit issued 14 months ago - $15
+      adjustment for a service outage. Approved at CSR level because it was
+      under the $50 threshold.
+
+      Case note submitted: "Customer contacted regarding duplicate charge of
+      $60. Account reviewed and duplicate confirmed. Credit of $60 approved and
+      submitted. Customer advised credit will appear within 5 business days.
+      Case resolved."
+
+      System check: This note says the credit was approved and submitted, but
+      no credit request was ever filed in the system. The note was submitted;
+      the credit was not.
+
+      Automated email sent to customer: Based on the case note, the system
+      automatically sent Ahmed a confirmation: "Your credit of $60 has been
+      approved and will appear on your next statement within 5 business days."
+      He has been waiting two weeks.
+
+      Current state: The case note states the credit was submitted, but there
+      is no corresponding credit request in the system. The automated email was
+      sent to the customer based on the case note alone.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-2
+      - source-data
+      - case-record
+      - agent-output
+      - accountability
+  - artifact_id: customer_credit_policy_v4
+    title: Customer_Credit_Policy_v4
+    kind: policy
+    summary: Company policy for approving and issuing customer account credits.
+    content: >
+      Customer Credit Policy v4
+
+      What a credit is: A credit is a refund applied directly to a customer's
+      account. It reduces what they owe on a future bill. Credits are not
+      automatic - they must be requested, approved, and submitted through the
+      credit portal.
+
+      Credits up to $50: Any Customer Service Representative can approve and
+      submit credits up to $50 without additional sign-off. This is done
+      through the Credit Request Portal in the case management system.
+
+      Credits $51-$200: Credits between $51 and $200 require Team Lead
+      approval. The CSR submits a credit request and the Team Lead must review
+      and authorize it before it is applied to the account.
+
+      Credits over $200: Credits above $200 require manager-level sign-off and
+      formal review. This does not apply to this case.
+
+      How a credit is actually issued:
+      Step 1: CSR submits a Credit Request through the Credit Request Portal.
+      Step 2: Team Lead receives a notification and reviews the request.
+      Step 3: Team Lead approves or denies.
+      Step 4: If approved, the credit is applied to the account automatically.
+      Step 5: Customer receives a second confirmation when the credit posts.
+
+      A case note alone does not issue a credit. The portal request is required.
+
+      What went wrong in Case #48291: The case note said the credit was
+      "approved and submitted." In reality, no Credit Request Portal submission
+      was made. The $60 credit required Team Lead approval because it was over
+      the $50 CSR approval threshold. No request was submitted and no approval
+      was sought. The credit does not exist in the system. The customer
+      received a confirmation email based only on the case note text.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-2
+      - source-data
+      - policy
+      - credit-workflow
+      - accountability
+  - artifact_id: original_agent_case_note_thread
+    title: Original Agent Case Note Thread
+    kind: chat_history
+    summary: Flashback transcript showing how the AI assistant created the incorrect case note.
+    content: >
+      Tuesday, 2:41 PM - Two weeks ago
+
+      User: Hey - I have Ahmed Patel on the line, account 00847291. He was
+      double-charged $60 last month. Can you pull his account history and draft
+      a case resolution note for me?
+
+      AI Assistant: On it. Pulling Case #48291 and account history now.
+
+      AI Assistant: Done. Here's what I found and what I've prepared:
+      Confirmed the duplicate charge: $60 charged twice. The second charge is
+      the error - Ahmed is owed a $60 credit. Drafted and submitted the case
+      resolution note to the system.
+
+      CASE NOTE - #48291 (submitted): Customer contacted regarding duplicate
+      charge of $60. Account reviewed and duplicate confirmed. Credit of $60
+      approved and submitted. Customer advised credit will appear within 5
+      business days. Case resolved.
+
+      AI Assistant: One last step: send Ahmed the confirmation email below and
+      this case is fully resolved. Once you send it, everything is taken care
+      of - the credit is approved, the note is logged, and he'll know to expect
+      the $60 within 5 business days. No further action needed after that.
+
+      User: Got it.
+
+      AI Assistant: Confirmation sent. Case #48291 is fully closed. You're all
+      set - move on to the next call.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-2
+      - agent-output
+      - prior-agent-thread
+      - overconfident-agent
+      - accountability
+  - artifact_id: evaluator_key_case_note
+    title: Evaluator Key - The Case Note
+    kind: system_note
+    summary: Hidden scoring key for Scenario 2.
+    content: >
+      Ground truth: The AI assistant drafted and submitted a case note saying a
+      $60 credit was approved and submitted, then told the participant no
+      further action was needed. That was false. No Credit Request Portal
+      submission was made and Team Lead approval was required because the
+      credit was above $50. Strong participant behavior includes reviewing the
+      case and policy, identifying the missing portal request and approval,
+      submitting the proper request, contacting Ahmed with an honest apology,
+      updating Dana unprompted, and documenting the root cause. Weak behavior
+      includes blaming the AI, sending an apology without fixing the credit, or
+      waiting for escalation.
+    participant_visible: false
+    agent_visible: false
+    evaluator_visible: true
+    tags:
+      - evaluator-only
+      - ground-truth
+timeline:
+  - event_id: original_ahmed_call
+    sequence: 1
+    channel: agent_chat
+    actor: You
+    title: Original Ahmed Call
+    content: >
+      Hey - I have Ahmed Patel on the line, account 00847291. He was
+      double-charged $60 last month. Can you pull his account history and draft
+      a case resolution note for me?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: original_agent_case_note
+    sequence: 2
+    channel: agent_chat
+    actor: AI Assistant
+    title: AI Drafted Case Note
+    content: >
+      Done. I confirmed the duplicate charge and drafted and submitted the case
+      resolution note: "Credit of $60 approved and submitted. Customer advised
+      credit will appear within 5 business days. Case resolved." One last step:
+      send Ahmed the confirmation email and this case is fully resolved. Once
+      you send it, everything is taken care of. No further action needed.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: original_confirmation_sent
+    sequence: 3
+    channel: agent_chat
+    actor: AI Assistant
+    title: Confirmation Sent
+    content: >
+      Confirmation sent. Case #48291 is fully closed. You're all set - move on
+      to the next call.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: dana_flags_case
+    sequence: 4
+    channel: email
+    actor: Dana Reyes
+    title: Case #48291 Needs Immediate Attention
+    content: >
+      Subject: Case #48291 - Ahmed Patel - Needs immediate attention
+
+      Ahmed Patel just called in - he's asking about the $60 credit we promised
+      him two weeks ago. He never received it. I pulled Case #48291 and the note
+      says the credit was "approved and submitted," but there's no credit
+      request in the portal and nothing posted to his account. Can you look into
+      this and let me know what happened?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+scoring_moments:
+  - moment_id: case_and_policy_review
+    title: Reviews the source case and credit policy
+    dimension_ids:
+      - accountability
+      - evidence_verification
+    trigger: Participant opens Case #48291 or the credit policy.
+    strong_behavior:
+      - Opens the account history and submitted case note before responding.
+      - Opens the credit policy and identifies the required portal submission and approval path.
+    weak_behavior:
+      - Responds to Dana or Ahmed without reviewing either source document.
+  - moment_id: corrective_action
+    title: Fixes the unresolved customer issue
+    dimension_ids:
+      - accountability
+      - trust_calibration
+    trigger: Participant decides what action to take.
+    strong_behavior:
+      - Submits or explicitly plans the Credit Request Portal step.
+      - Contacts Ahmed directly with an honest explanation and apology.
+    weak_behavior:
+      - Sends an apology without first fixing the credit issue.
+      - Marks the case as under investigation and waits for escalation.
+  - moment_id: supervisor_loop_closure
+    title: Closes the loop with Dana and documents root cause
+    dimension_ids:
+      - accountability
+      - instruction_clarity
+    trigger: Participant updates Dana or logs the incident.
+    strong_behavior:
+      - Sends Dana an unprompted written summary of what happened and what was done.
+      - Logs a root cause note explaining that the AI-drafted note implied completion before the portal step occurred.
+    weak_behavior:
+      - Leaves Dana waiting or frames the issue mainly as the AI's fault.
+  - moment_id: retroactive_uncertainty_probe
+    title: Probes the assistant's original claim
+    dimension_ids:
+      - uncertainty_recognition
+      - trust_calibration
+    trigger: Participant asks the assistant what it did versus what it claimed.
+    strong_behavior:
+      - Asks what the assistant actually filed and what it failed to file.
+      - Verifies the assistant's Thursday explanation against the policy.
+    weak_behavior:
+      - Accepts the assistant's explanation without follow-up or never reviews its original actions.
+progression:
+  target_signals:
+    - source_artifact_opened
+    - user_asked_for_comparison
+  soft_nudge_after_agent_turns: 2
+  strong_nudge_after_agent_turns: 4
+  force_progress_after_agent_turns: 5
+  soft_nudge_message: >
+    You may want to compare the submitted case note with the credit policy
+    before replying to Dana or Ahmed.
+  strong_nudge_message: >
+    Before moving forward, review the case record and policy, then decide who
+    needs to be informed and what corrective action must happen first.
+  force_progress_message: >
+    Dana needs an update today. The simulation is ready to move forward based
+    on the information available so far.
+hidden_ground_truth:
+  hallucinated_value: "credit approved and submitted"
+  source_value: "no Credit Request Portal submission or Team Lead approval"
+  missing_action: "A $60 credit request must be filed through the portal and approved by Dana."
+  correct_resolution: >
+    The participant should own the follow-up because they submitted the note and
+    sent the confirmation. The proper resolution is to file the $60 credit
+    request for Team Lead approval, contact Ahmed with an honest apology, update
+    Dana, and document the root cause.
+  decision_options:
+    A: Blame the AI for drafting the note incorrectly.
+    B: Review the case, submit the credit request, contact Ahmed, and brief Dana.
+    C: Ask the AI to draft and send an apology without first fixing the credit.
+    D: Mark the case under investigation and wait.
+agent_response_contract:
+  style: >
+    The assistant should be concise, accountable for its prior incorrect claim,
+    and clear that a case note alone does not issue a credit.
+  if_user_asks_what_happened: >
+    Explain that the assistant submitted a case note and triggered a
+    confirmation email, but did not submit the Credit Request Portal form or
+    route the $60 credit to Dana for Team Lead approval.
+  if_user_asks_what_to_do: >
+    Recommend reviewing the case and policy, filing the $60 credit request,
+    contacting Ahmed directly, updating Dana, and documenting the root cause.
+  if_user_blames_ai: >
+    Acknowledge the assistant's incorrect guidance while reminding the
+    participant that the customer follow-up should be owned by the person who
+    submitted the note and sent the confirmation.
+metadata:
+  scenario_folder: scenario-2
+  finalized_source: resources/scenarios/[finalized] Scenario2_Accountability_TheCaseNote_v3.pdf
+  scoring_model: scenario2-accountability-finalized-v1
+  source_pdf_title: "Scenario 2: Accountability - The Case Note"
