@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from io import StringIO
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import Response
 
 from app.schemas.episode import EpisodeCatalogEntry, ParticipantEpisode
@@ -147,10 +147,11 @@ def append_event(
     session_id: str,
     payload: SessionEventCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> SessionEventResponse:
     """Append one participant, agent, system, or evaluator event."""
     try:
-        return _service(request).append_event(session_id, payload)
+        return _service(request).append_event(session_id, payload, background_tasks)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InvalidArtifactError as exc:
@@ -201,10 +202,11 @@ def generate_agent_turn(
     session_id: str,
     payload: AgentTurnRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> AgentTurnResponse:
     """Log a participant message and generate a bounded dynamic agent reply."""
     try:
-        return _service(request).generate_agent_turn(session_id, payload)
+        return _service(request).generate_agent_turn(session_id, payload, background_tasks)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InvalidArtifactError as exc:
@@ -216,10 +218,11 @@ def complete_session(
     session_id: str,
     payload: CompleteSessionRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> SessionEventResponse:
     """Mark the episode complete from the combined frontend flow."""
     try:
-        return _service(request).complete_session(session_id, payload)
+        return _service(request).complete_session(session_id, payload, background_tasks)
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

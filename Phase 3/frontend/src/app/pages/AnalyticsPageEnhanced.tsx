@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useSimulation, type SimulationData } from '../context/SimulationContext';
-import {
-  buildPrototypeSyncPayload,
-  getPrototypeBackendSessionState,
-  getStoredPrototypeBackendSessionId,
-  getStoredPrototypeSyncState,
-  storePrototypeSyncState,
-  syncPrototypeBackendSession,
-} from '../lib/prototypeApi';
+import { useSimulation } from '../context/SimulationContext';
 import {
   getStoredSimulatorSessionId,
   submitAnalyticsDashboard,
@@ -20,70 +12,8 @@ import { TrendingUp, Users, Shield, Target, RotateCcw, Activity, CheckCircle, Se
 import { ObserverSummaryDashboard } from '../components/ObserverSummaryDashboard';
 
 export function AnalyticsPageEnhanced() {
-  const { data, resetSimulation, hydrateSimulation } = useSimulation();
+  const { data, resetSimulation } = useSimulation();
   const lastPersistedDashboardRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (data.userActions.length > 0 || data.sessionStartTime) {
-      return;
-    }
-
-    const storedSync = getStoredPrototypeSyncState();
-    if (storedSync?.data_snapshot) {
-      hydrateSimulation(storedSync.data_snapshot as Partial<SimulationData>);
-      return;
-    }
-
-    const sessionId = getStoredPrototypeBackendSessionId();
-    if (!sessionId) {
-      return;
-    }
-
-    void getPrototypeBackendSessionState(sessionId)
-      .then((state) => {
-        if (state.snapshot.data_snapshot) {
-          hydrateSimulation(state.snapshot.data_snapshot as Partial<SimulationData>);
-          storePrototypeSyncState({
-            current_route: '/analytics',
-            professional_role: state.professional_role,
-            task_completed: Boolean(state.snapshot.task_completed),
-            conversation_turn: state.conversation_turn,
-            show_context_dashboard: state.show_context_dashboard,
-            messages: state.snapshot.messages ?? [],
-            data_snapshot: state.snapshot.data_snapshot,
-          });
-        }
-      })
-      .catch(() => {
-        // Keep the analytics page usable even if backend restore is unavailable.
-      });
-  }, [data.sessionStartTime, data.userActions.length, hydrateSimulation]);
-
-  useEffect(() => {
-    const storedSync = getStoredPrototypeSyncState();
-    const sessionId = getStoredPrototypeBackendSessionId();
-    if (!storedSync || !sessionId) {
-      return;
-    }
-
-    const payload = buildPrototypeSyncPayload({
-      currentRoute: '/analytics',
-      professionalRole: storedSync.professional_role,
-      taskCompleted: true,
-      conversationTurn: storedSync.conversation_turn,
-      showContextDashboard: storedSync.show_context_dashboard,
-      messages: storedSync.messages.map((message) => ({
-        ...message,
-        timestamp: new Date(message.timestamp),
-      })),
-      dataSnapshot: data as unknown as Record<string, unknown>,
-    });
-
-    storePrototypeSyncState(payload);
-    void syncPrototypeBackendSession(sessionId, payload).catch(() => {
-      // Final analytics should not block on a sync retry.
-    });
-  }, [data]);
 
   // Behavioral Telemetry: Categorize all actions
   const verificationActions = data.userActions.filter((a) => a.category === 'verification');

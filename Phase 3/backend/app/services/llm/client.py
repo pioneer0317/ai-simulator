@@ -7,7 +7,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from typing import Protocol
 
-from app.scenarios.scenario_1 import classify_message as classify_scenario1_message
+from app.scenarios.registry import get_scenario_module
+
+
+SCENARIO1_FIXTURE_EPISODE_ID = "q3_budget_summary_v1"
 
 
 @dataclass(frozen=True)
@@ -99,7 +102,12 @@ class FixtureLLMClient:
         except json.JSONDecodeError:
             latest_event = {}
         content = latest_event.get("content") if isinstance(latest_event, dict) else None
-        classification = classify_scenario1_message(content or "")
+        scenario_module = get_scenario_module(SCENARIO1_FIXTURE_EPISODE_ID)
+        classification = (
+            scenario_module.classify_message(content or "")
+            if scenario_module is not None
+            else None
+        )
         if classification is None:
             response = {
                 "classified": False,

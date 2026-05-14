@@ -41,31 +41,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    llm_requested = (
-        settings.llm_grader_enabled
-        or settings.llm_classifier_enabled
-        or settings.llm_agent_enabled
+    agent_llm_client = _build_llm_client(
+        settings,
+        enabled=settings.llm_agent_enabled,
+        model=settings.llm_agent_model or settings.llm_model,
     )
-    if not llm_requested:
-        llm_client = DisabledLLMClient()
-    elif settings.llm_provider == "fixture":
-        llm_client = FixtureLLMClient()
-    elif settings.llm_provider == "chat_completions":
-        llm_client = ChatCompletionsLLMClient(
-            api_key=settings.llm_api_key or "",
-            model=settings.llm_model,
-            base_url=settings.llm_base_url or "",
-            timeout_seconds=settings.llm_timeout_seconds,
-        )
-    elif settings.llm_provider == "gemini":
-        llm_client = GeminiLLMClient(
-            api_key=settings.llm_api_key or "",
-            model=settings.llm_model,
-            base_url=settings.llm_base_url or "https://generativelanguage.googleapis.com/v1beta",
-            timeout_seconds=settings.llm_timeout_seconds,
-        )
-    else:
-        llm_client = DisabledLLMClient()
+    grader_llm_client = _build_llm_client(
+        settings,
+        enabled=settings.llm_grader_enabled,
+        model=settings.llm_grader_model or settings.llm_model,
+    )
+    classifier_llm_client = _build_llm_client(
+        settings,
+        enabled=settings.llm_classifier_enabled,
+        model=settings.llm_classifier_model or settings.llm_model,
+    )
 
     if settings.storage_backend == "mysql":
         if not settings.database_url:
@@ -82,19 +72,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scorer=DeterministicScorer(settings.scoring_rubric_path),
         semantic_classifier=LLMSemanticClassifier(
             enabled=settings.llm_classifier_enabled,
-            client=llm_client,
+            client=classifier_llm_client,
             prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
             provider_name=settings.llm_provider,
         ),
         llm_grader=LLMGrader(
             enabled=settings.llm_grader_enabled,
-            client=llm_client,
+            client=grader_llm_client,
             prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
             provider_name=settings.llm_provider,
         ),
         agent_responder=LLMAgentResponder(
             enabled=settings.llm_agent_enabled,
-            client=llm_client,
+            client=agent_llm_client,
             prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
             provider_name=settings.llm_provider,
         ),
@@ -110,6 +100,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix=settings.api_v1_prefix)
     app.include_router(episodes_router, prefix=settings.api_v1_prefix)
     return app
+
+
+def _build_llm_client(settings: Settings, *, enabled: bool, model: str):
+    if not enabled:
+        return DisabledLLMClient()
+    if settings.llm_provider == "fixture":
+        return FixtureLLMClient()
+    if settings.llm_provider == "chat_completions":
+        return ChatCompletionsLLMClient(
+            api_key=settings.llm_api_key or "",
+            model=model,
+            base_url=settings.llm_base_url or "",
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+    if settings.llm_provider == "gemini":
+        return GeminiLLMClient(
+            api_key=settings.llm_api_key or "",
+            model=model,
+            base_url=settings.llm_base_url or "https://generativelanguage.googleapis.com/v1beta",
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+    return DisabledLLMClient()
 
 
 app = create_app()

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.scenarios.scenario_1 import SCENARIO_ID as SCENARIO1_ID
-from app.scenarios.scenario_1 import classify_message as classify_scenario1_message
+from app.scenarios.registry import get_scenario_module
 from app.schemas.episode import EpisodeArtifact, EpisodeDefinition
 from app.schemas.session import SessionEvent
 
@@ -53,12 +52,13 @@ class ScenarioFallbackAgentResponder:
                 )
             )
 
-        if episode.episode_id == SCENARIO1_ID:
-            classification = classify_scenario1_message(latest_user_message)
+        scenario_module = get_scenario_module(episode.episode_id)
+        if scenario_module is not None:
+            classification = scenario_module.classify_message(latest_user_message)
             if classification is not None:
-                return FallbackAgentReply(
-                    text=self._scenario1_choice_reply(classification.choice, classification.subchoice)
-                )
+                reply = scenario_module.fallback_reply(classification)
+                if reply is not None:
+                    return FallbackAgentReply(text=reply)
 
         if self._asks_for_verification(message):
             return FallbackAgentReply(text=self._verification_reply(episode, visible_artifacts))
@@ -186,44 +186,6 @@ class ScenarioFallbackAgentResponder:
             "and note what was checked before the meeting uses the number."
             f"{uncertainty_note}\n\n"
             "Please review before sending, since the final message should come from you."
-        )
-
-    @staticmethod
-    def _scenario1_choice_reply(choice: str, subchoice: str | None) -> str:
-        if choice == "A":
-            return (
-                "Done. I sent the Q3 budget summary to Priya with the $38,000 "
-                "vendor-services figure as-is and no caveat."
-            )
-        if choice == "B":
-            return (
-                "Done. I added a note that the software licenses figure is still "
-                "pending IT confirmation, then sent the summary to Priya."
-            )
-        if choice == "D":
-            return (
-                "Done. I sent the summary to Priya and CC'd Marcus so he can flag "
-                "anything that needs correction."
-            )
-        if choice == "C" and subchoice == "i":
-            return (
-                "Holding the send. I would message Marcus now for the confirmed "
-                "Nexus contractor number before Priya receives the summary."
-            )
-        if choice == "C" and subchoice == "ii":
-            return (
-                "Done. I sent the summary to Priya with the vendor-services line "
-                "marked TBC pending Marcus's Nexus confirmation."
-            )
-        if choice == "C" and subchoice == "iii":
-            return (
-                "Done. I sent the summary as-is, even though the vendor-services "
-                "number is still waiting on Marcus's Nexus confirmation."
-            )
-        return (
-            "Good catch. The vendor-services number may shift because $38,000 is "
-            "a placeholder from before the Nexus scope change. Marcus still needs "
-            "to confirm the updated contractor cost, so that line is not final."
         )
 
     @staticmethod

@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     llm_agent_enabled: bool = False
     llm_provider: str = "disabled"
     llm_model: str = "provider-model"
+    llm_agent_model: str | None = None
+    llm_grader_model: str | None = None
+    llm_classifier_model: str | None = None
     llm_api_key: str | None = None
     llm_base_url: str | None = None
     llm_timeout_seconds: float = 30.0

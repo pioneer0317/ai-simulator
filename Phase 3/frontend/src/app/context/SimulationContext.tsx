@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
-import { clearStoredPrototypeBackendSession } from '../lib/prototypeApi';
 import { clearStoredSimulatorSession } from '../lib/simulatorApi';
 
 export type PersonalityType = 'over-truster' | 'skeptic' | 'shortcut-taker' | null;
@@ -331,7 +330,6 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
   };
 
   const resetSimulation = () => {
-    clearStoredPrototypeBackendSession();
     clearStoredSimulatorSession();
     setData(createDefaultSimulationData());
   };

@@ -9,6 +9,7 @@ import {
   getSimulatorSession,
   getStoredParticipantEpisode,
   getStoredSimulatorSessionId,
+  startSimulatorSession,
   storeParticipantEpisode,
   type SimulatorEventType,
   type ProgressionDecision,
@@ -51,6 +52,31 @@ export function DesktopSimulationPage() {
             console.warn('Unable to load participant episode for desktop content', error);
           });
       }
+    } else {
+      void startSimulatorSession()
+        .then(async (session) => {
+          storeParticipantEpisode(session.participant_episode);
+          setParticipantEpisode(session.participant_episode);
+          await appendSimulatorEvent(session.session_id, {
+            event_type: 'session_started',
+            actor: 'system',
+            metadata: {
+              source: 'desktop_simulation_direct_entry',
+              episode_id: session.episode_id,
+            },
+          });
+          await appendSimulatorEvent(session.session_id, {
+            event_type: 'scenario_started',
+            metadata: {
+              scenario_type: 'desktop_workspace',
+              route: '/simulation',
+              benchmark_seconds: 300,
+            },
+          });
+        })
+        .catch((error) => {
+          console.warn('Unable to start backend session for desktop content', error);
+        });
     }
   }, [data.sessionStartTime, participantEpisode, startScenario, startSession]);
 
@@ -109,6 +135,17 @@ export function DesktopSimulationPage() {
     }
     navigate('/reflection');
   };
+
+  if (!participantEpisode) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-6 py-5 shadow-2xl">
+          <div className="text-sm font-semibold uppercase tracking-wide text-white/50">Simulation</div>
+          <div className="mt-2 text-lg font-semibold">Loading episode workspace...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <MacbookDesktop

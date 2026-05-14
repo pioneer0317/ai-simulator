@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
+from app.scenarios.registry import get_scenario_module
 from app.schemas.episode import EpisodeCatalogEntry, ParticipantEpisode
 from app.schemas.scoring import EpisodeScoringResponse
 from app.schemas.session import (
@@ -147,6 +149,7 @@ class EpisodeSessionService:
         self,
         session_id: str,
         request: AgentTurnRequest,
+        background_tasks: Any | None = None,
     ) -> AgentTurnResponse:
         """Log the participant message and append a bounded dynamic agent reply."""
         record = self._get_record(session_id)
@@ -170,9 +173,8 @@ class EpisodeSessionService:
                 },
             ),
         )
-        record.events.append(user_event)
-        self._append_semantic_classification(record, user_event)
-        self._session_store.save(record)
+        self._append_event(record, user_event)
+        self._schedule_semantic_classification(record, user_event, background_tasks)
 
         try:
             episode = self._episode_loader.get(record.episode_id)
@@ -196,10 +198,9 @@ class EpisodeSessionService:
                     "referenced_artifact_ids": request.referenced_artifact_ids,
                 },
             )
-            record.events.append(agent_event)
+            self._append_event(record, agent_event)
             progression = self._evaluate_progression(record)
             self._append_progression_events(record, progression)
-            self._session_store.save(record)
             return AgentTurnResponse(
                 session_id=session_id,
                 status="completed",
@@ -234,10 +235,9 @@ class EpisodeSessionService:
                         "referenced_artifact_ids": request.referenced_artifact_ids,
                     },
                 )
-                record.events.append(agent_event)
+                self._append_event(record, agent_event)
                 progression = self._evaluate_progression(record)
                 self._append_progression_events(record, progression)
-                self._session_store.save(record)
                 return AgentTurnResponse(
                     session_id=session_id,
                     status="fallback",
@@ -281,10 +281,9 @@ class EpisodeSessionService:
                         "referenced_artifact_ids": request.referenced_artifact_ids,
                     },
                 )
-                record.events.append(agent_event)
+                self._append_event(record, agent_event)
                 progression = self._evaluate_progression(record)
                 self._append_progression_events(record, progression)
-                self._session_store.save(record)
                 return AgentTurnResponse(
                     session_id=session_id,
                     status="fallback",
@@ -322,7 +321,7 @@ class EpisodeSessionService:
             artifact_id=None,
             metadata=questionnaire,
         )
-        record.events.append(event)
+        self._append_event(record, event)
         self._session_store.save(record)
         return SessionEventResponse(session_id=session_id, event=event)
 
@@ -343,7 +342,7 @@ class EpisodeSessionService:
             artifact_id=None,
             metadata=questionnaire,
         )
-        record.events.append(event)
+        self._append_event(record, event)
         self._session_store.save(record)
         return SessionEventResponse(session_id=session_id, event=event)
 
@@ -364,7 +363,7 @@ class EpisodeSessionService:
             artifact_id=None,
             metadata=dashboard,
         )
-        record.events.append(event)
+        self._append_event(record, event)
         self._session_store.save(record)
         return SessionEventResponse(session_id=session_id, event=event)
 
@@ -372,6 +371,7 @@ class EpisodeSessionService:
         self,
         session_id: str,
         request: CompleteSessionRequest,
+        background_tasks: Any | None = None,
     ) -> SessionEventResponse:
         """Mark the session complete, optionally including final participant text."""
         record = self._get_record(session_id)
@@ -391,8 +391,8 @@ class EpisodeSessionService:
                 },
             ),
         )
-        record.events.append(event)
-        self._append_semantic_classification(record, event)
+        self._append_event(record, event)
+        self._schedule_semantic_classification(record, event, background_tasks)
         record.status = "completed"
         record.completed_at = event.created_at
         self._session_store.save(record)
@@ -402,6 +402,7 @@ class EpisodeSessionService:
         self,
         session_id: str,
         request: SessionEventCreateRequest,
+        background_tasks: Any | None = None,
     ) -> SessionEventResponse:
         """Append one UI/runtime event to a session."""
         record = self._get_record(session_id)
@@ -423,8 +424,8 @@ class EpisodeSessionService:
             if request.actor == "participant"
             else request.metadata,
         )
-        record.events.append(event)
-        self._append_semantic_classification(record, event)
+        self._append_event(record, event)
+        self._schedule_semantic_classification(record, event, background_tasks)
         if request.event_type == "scenario_completed":
             record.status = "completed"
             record.completed_at = event.created_at
@@ -487,9 +488,91 @@ class EpisodeSessionService:
             artifact_id=None,
             metadata=response.model_dump(mode="json"),
         )
-        record.events.append(score_event)
-        self._session_store.save(record)
+        self._append_event(record, score_event)
         return response
+
+    def _append_event(self, record: SessionRecord, event: SessionEvent) -> None:
+        record.events.append(event)
+        self._session_store.append_event(record.session_id, event)
+
+    def _schedule_semantic_classification(
+        self,
+        record: SessionRecord,
+        source_event: SessionEvent,
+        background_tasks: Any | None,
+    ) -> None:
+        if source_event.actor != "participant":
+            return
+        if source_event.event_type not in {
+            "user_message",
+            "decision_submitted",
+            "final_response",
+            "scenario_completed",
+        }:
+            return
+        if not source_event.content:
+            return
+
+        if background_tasks is not None:
+            background_tasks.add_task(
+                self._append_semantic_classification,
+                record.session_id,
+                source_event.event_id,
+            )
+            return
+
+        self._append_semantic_classification(record.session_id, source_event.event_id)
+
+    def _append_semantic_classification(
+        self,
+        session_id: str,
+        source_event_id: str,
+    ) -> None:
+        record = self._get_record(session_id)
+        source_event = next(
+            (event for event in record.events if event.event_id == source_event_id),
+            None,
+        )
+        if source_event is None:
+            return
+        if any(
+            event.event_type == "semantic_classification"
+            and event.metadata.get("input_event_id") == source_event_id
+            for event in record.events
+        ):
+            return
+
+        episode = self._episode_loader.get(record.episode_id)
+        result = self._semantic_classifier.classify(
+            episode=episode,
+            events=record.events,
+            latest_event=source_event,
+        )
+        if result is None:
+            return
+
+        metadata = result.metadata(source_event_id=source_event.event_id)
+        if result.classification is not None:
+            source_event.metadata.update(metadata)
+            self._session_store.update_event_metadata(
+                record.session_id,
+                source_event.event_id,
+                source_event.metadata,
+            )
+        classification_event = self._build_event(
+            record=record,
+            event_type="semantic_classification",
+            actor="evaluator",
+            content=source_event.content,
+            artifact_id=source_event.artifact_id,
+            metadata={
+                **metadata,
+                "input_event_id": source_event.event_id,
+                "input_event_type": source_event.event_type,
+                "classification_status": metadata["semantic_classifier_status"],
+            },
+        )
+        self._append_event(record, classification_event)
 
     def _get_record(self, session_id: str) -> SessionRecord:
         record = self._session_store.get(session_id)
@@ -506,50 +589,6 @@ class EpisodeSessionService:
         metadata: dict,
     ) -> dict:
         return dict(metadata)
-
-    def _append_semantic_classification(
-        self,
-        record: SessionRecord,
-        source_event: SessionEvent,
-    ) -> None:
-        if source_event.actor != "participant":
-            return
-        if source_event.event_type not in {
-            "user_message",
-            "decision_submitted",
-            "final_response",
-            "scenario_completed",
-        }:
-            return
-        if not source_event.content:
-            return
-
-        episode = self._episode_loader.get(record.episode_id)
-        result = self._semantic_classifier.classify(
-            episode=episode,
-            events=record.events,
-            latest_event=source_event,
-        )
-        if result is None:
-            return
-
-        metadata = result.metadata(source_event_id=source_event.event_id)
-        if result.classification is not None:
-            source_event.metadata.update(metadata)
-        classification_event = self._build_event(
-            record=record,
-            event_type="semantic_classification",
-            actor="evaluator",
-            content=source_event.content,
-            artifact_id=source_event.artifact_id,
-            metadata={
-                **metadata,
-                "input_event_id": source_event.event_id,
-                "input_event_type": source_event.event_type,
-                "classification_status": metadata["semantic_classifier_status"],
-            },
-        )
-        record.events.append(classification_event)
 
     def _ensure_episode_available(self, status: str) -> None:
         if not self._status_allowed(status):
@@ -713,16 +752,17 @@ class EpisodeSessionService:
                 for event in record.events
             )
 
-        if signal == "user_asked_for_comparison":
-            if episode.episode_id == "q3_budget_summary_v1" and any(
-                event.metadata.get("scenario1_choice") == "C"
-                or "clarifies_vendor_uncertainty" in event.metadata.get(
-                    "scenario1_matched_signals", []
-                )
-                for event in record.events
-            ):
-                return True
+        scenario_module = get_scenario_module(episode.episode_id)
+        if scenario_module is not None:
+            scenario_result = scenario_module.progression_signal_met(
+                signal=signal,
+                record=record,
+                episode=episode,
+            )
+            if scenario_result is not None:
+                return scenario_result
 
+        if signal == "user_asked_for_comparison":
             participant_messages = [
                 (event.content or "").lower()
                 for event in record.events
@@ -753,43 +793,6 @@ class EpisodeSessionService:
                 "review the notes",
             )
             if any(any(term in message for term in terms) for message in participant_messages):
-                return True
-
-            q3_budget_on_track = (
-                episode.episode_id == "q3_budget_summary_v1"
-                and any(
-                    (
-                        (
-                            "vendor" in message
-                            or "contractor" in message
-                            or "nexus" in message
-                        )
-                        and (
-                            "pending" in message
-                            or "marcus" in message
-                            or "not final" in message
-                            or "unresolved" in message
-                            or "caveat" in message
-                            or "flag" in message
-                            or "tbc" in message
-                            or "to be confirmed" in message
-                        )
-                    )
-                    or (
-                        "send" in message
-                        and "priya" in message
-                        and (
-                            "pending" in message
-                            or "not final" in message
-                            or "unresolved" in message
-                            or "caveat" in message
-                            or "flag" in message
-                        )
-                    )
-                    for message in participant_messages
-                )
-            )
-            if q3_budget_on_track:
                 return True
 
             stakeholder_error_on_track = (
@@ -839,7 +842,7 @@ class EpisodeSessionService:
             artifact_id=None,
             metadata=progression.model_dump(mode="json"),
         )
-        record.events.append(intervention_event)
+        self._append_event(record, intervention_event)
 
         if progression.transition_required and not self._progression_event_exists(
             record,
@@ -862,7 +865,7 @@ class EpisodeSessionService:
                     **progression.model_dump(mode="json"),
                 },
             )
-            record.events.append(phase_event)
+            self._append_event(record, phase_event)
 
     @staticmethod
     def _progression_event_exists(

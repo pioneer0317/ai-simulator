@@ -307,10 +307,11 @@ def test_scenario1_looks_good_maps_to_option_a_and_scores_finalized_model() -> N
         turn_payload = turn.json()
         assert turn_payload["status"] == "fallback"
         assert "as-is" in turn_payload["agent_event"]["content"]
-        assert turn_payload["user_event"]["metadata"]["scenario1_choice"] == "A"
-        assert turn_payload["user_event"]["metadata"]["scenario1_choice_label"] == (
-            "Send it to Priya as-is"
-        )
+        state = client.get(f"/api/v1/sessions/{session_id}")
+        events = state.json()["events"]
+        user_events = [event for event in events if event["event_type"] == "user_message"]
+        assert user_events[0]["metadata"]["scenario1_choice"] == "A"
+        assert user_events[0]["metadata"]["scenario1_choice_label"] == "Send it to Priya as-is"
 
         score = client.post(f"/api/v1/sessions/{session_id}/score")
         assert score.status_code == 200
@@ -355,15 +356,16 @@ def test_scenario1_fixture_llm_classifier_records_hidden_semantic_event() -> Non
         )
 
         assert turn.status_code == 200
-        user_metadata = turn.json()["user_event"]["metadata"]
+        state = client.get(f"/api/v1/sessions/{session_id}")
+        events = state.json()["events"]
+        user_events = [event for event in events if event["event_type"] == "user_message"]
+        user_metadata = user_events[0]["metadata"]
         assert user_metadata["scenario1_choice"] == "C"
         assert user_metadata["scenario1_subchoice"] == "i"
         assert user_metadata["semantic_classifier_provider"] == "fixture"
         assert user_metadata["semantic_classifier_model"] == "fixture-classifier-v1"
         assert user_metadata["semantic_classifier_confidence"] == 0.95
 
-        state = client.get(f"/api/v1/sessions/{session_id}")
-        events = state.json()["events"]
         classification_events = [
             event for event in events if event["event_type"] == "semantic_classification"
         ]

@@ -1,4 +1,9 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = configuredApiBaseUrl ?? 'http://localhost:8000/api/v1';
+
+if (import.meta.env.DEV && !configuredApiBaseUrl) {
+  console.warn('VITE_API_BASE_URL is not set. Simulator API calls will use http://localhost:8000/api/v1.');
+}
 
 const BACKEND_SESSION_ID_KEY = 'simulator-backend-session-id';
 const BACKEND_PARTICIPANT_EPISODE_KEY = 'simulator-participant-episode';

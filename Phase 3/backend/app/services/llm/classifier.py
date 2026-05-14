@@ -6,19 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from app.scenarios.scenario_1 import (
-    SCENARIO_ID as SCENARIO1_ID,
-    Scenario1Classification,
-    classify_message as classify_scenario1_message,
-)
+from app.scenarios.base import ScenarioClassification, ScenarioModule
+from app.scenarios.registry import get_scenario_module
 from app.schemas.episode import EpisodeDefinition
 from app.schemas.session import SessionEvent
 from app.services.llm.client import LLMClient
 from app.services.llm.prompts import PromptTemplateRenderer
-
-
-LLM_CLASSIFIER_VERSION = "scenario1-semantic-llm-v1"
-FALLBACK_CLASSIFIER_VERSION = "scenario1-semantic-rules-fallback-v1"
 
 
 class ParsedSemanticClassification(BaseModel):
@@ -52,24 +45,12 @@ class ParsedSemanticClassification(BaseModel):
             raise ValueError("subchoice must be one of i, ii, iii")
         return value
 
-    def to_scenario1_classification(self) -> Scenario1Classification | None:
-        if not self.classified or self.choice is None or self.label is None:
-            return None
-        subchoice = self.subchoice if self.choice == "C" else None
-        return Scenario1Classification(
-            choice=self.choice,
-            subchoice=subchoice,
-            label=self.label,
-            terminal=self.terminal,
-            matched_signals=tuple(self.matched_signals),
-        )
-
 
 @dataclass(frozen=True)
 class SemanticClassificationResult:
     """Classifier output plus provider/prompt audit fields."""
 
-    classification: Scenario1Classification | None
+    classification: ScenarioClassification | None
     provider: str
     prompt_version: str
     classifier_version: str
@@ -141,14 +122,19 @@ class LLMSemanticClassifier:
         latest_event: SessionEvent,
     ) -> SemanticClassificationResult | None:
         """Classify a participant event, using LLM first when enabled and rules as fallback."""
-        if episode.episode_id != SCENARIO1_ID or not latest_event.content:
+        scenario_module = get_scenario_module(episode.episode_id)
+        if (
+            scenario_module is None
+            or scenario_module.classifier_template_name is None
+            or not latest_event.content
+        ):
             return None
 
         prompt_version = "disabled"
         if self._enabled:
             try:
                 prompt, prompt_version = self._prompt_renderer.render(
-                    self._template_name,
+                    scenario_module.classifier_template_name or self._template_name,
                     episode_packet=episode.model_dump(mode="json"),
                     transcript=[event.model_dump(mode="json") for event in events],
                     latest_event=latest_event.model_dump(mode="json"),
@@ -156,13 +142,13 @@ class LLMSemanticClassifier:
                 completion = self._client.complete(prompt)
                 parsed = self._parse_json(completion.text)
                 validated = ParsedSemanticClassification.model_validate(parsed)
-                classification = validated.to_scenario1_classification()
+                classification = scenario_module.classification_from_llm_payload(validated)
                 if classification is None:
                     return SemanticClassificationResult(
                         classification=None,
                         provider=self._client.provider,
                         prompt_version=prompt_version,
-                        classifier_version=LLM_CLASSIFIER_VERSION,
+                        classifier_version=scenario_module.llm_classifier_version,
                         model=completion.model,
                         confidence=validated.confidence,
                         evidence=validated.evidence,
@@ -172,6 +158,7 @@ class LLMSemanticClassifier:
                 if validated.confidence < self._min_confidence:
                     return self._fallback(
                         latest_event,
+                        scenario_module=scenario_module,
                         prompt_version=prompt_version,
                         fallback_reason=(
                             "LLM classifier confidence "
@@ -182,7 +169,7 @@ class LLMSemanticClassifier:
                     classification=classification,
                     provider=self._client.provider,
                     prompt_version=prompt_version,
-                    classifier_version=LLM_CLASSIFIER_VERSION,
+                    classifier_version=scenario_module.llm_classifier_version,
                     model=completion.model,
                     confidence=validated.confidence,
                     evidence=validated.evidence,
@@ -192,11 +179,16 @@ class LLMSemanticClassifier:
             except (json.JSONDecodeError, ValidationError, ValueError, RuntimeError) as exc:
                 return self._fallback(
                     latest_event,
+                    scenario_module=scenario_module,
                     prompt_version=prompt_version,
                     fallback_reason=str(exc),
                 )
 
-        return self._fallback(latest_event, prompt_version=prompt_version)
+        return self._fallback(
+            latest_event,
+            scenario_module=scenario_module,
+            prompt_version=prompt_version,
+        )
 
     @staticmethod
     def _parse_json(text: str) -> dict[str, Any]:
@@ -213,15 +205,16 @@ class LLMSemanticClassifier:
         self,
         latest_event: SessionEvent,
         *,
+        scenario_module: ScenarioModule,
         prompt_version: str,
         fallback_reason: str | None = None,
     ) -> SemanticClassificationResult | None:
-        classification = classify_scenario1_message(latest_event.content or "")
+        classification = scenario_module.classify_message(latest_event.content or "")
         return SemanticClassificationResult(
             classification=classification,
             provider="scenario_rules",
             prompt_version=prompt_version,
-            classifier_version=FALLBACK_CLASSIFIER_VERSION,
+            classifier_version=scenario_module.fallback_classifier_version,
             fallback_reason=fallback_reason,
             reasoning_summary=(
                 "Rule fallback matched this event after the LLM classifier was disabled "

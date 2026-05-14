@@ -42,6 +42,17 @@ class SessionStore(Protocol):
     def save(self, record: SessionRecord) -> None:
         """Persist the full session state."""
 
+    def append_event(self, session_id: str, event: SessionEvent) -> None:
+        """Append one event without rewriting the existing event log."""
+
+    def update_event_metadata(
+        self,
+        session_id: str,
+        event_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Update metadata for one existing event."""
+
     def list(self) -> list[SessionRecord]:
         """Return all sessions with events for admin review."""
 
@@ -59,6 +70,31 @@ class InMemorySessionStore:
 
     def save(self, record: SessionRecord) -> None:
         self._sessions[record.session_id] = record
+
+    def append_event(self, session_id: str, event: SessionEvent) -> None:
+        record = self._sessions.get(session_id)
+        if record is None:
+            return
+        for index, existing_event in enumerate(record.events):
+            if existing_event.event_id == event.event_id:
+                existing_event.metadata["sequence_index"] = index
+                return
+        event.metadata["sequence_index"] = len(record.events)
+        record.events.append(event)
+
+    def update_event_metadata(
+        self,
+        session_id: str,
+        event_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        record = self._sessions.get(session_id)
+        if record is None:
+            return
+        for event in record.events:
+            if event.event_id == event_id:
+                event.metadata = metadata
+                return
 
     def list(self) -> list[SessionRecord]:
         return sorted(
@@ -168,8 +204,12 @@ class SQLiteSessionStore:
                     _datetime(record.completed_at),
                 ),
             )
-            conn.execute("DELETE FROM session_events WHERE session_id = ?", (record.session_id,))
-            conn.executemany(
+
+    def append_event(self, session_id: str, event: SessionEvent) -> None:
+        with self._connect() as conn:
+            sequence_index = _next_sqlite_sequence_index(conn, session_id)
+            event.metadata["sequence_index"] = sequence_index
+            conn.execute(
                 """
                 INSERT INTO session_events (
                     event_id, session_id, episode_id, sequence_index,
@@ -177,38 +217,79 @@ class SQLiteSessionStore:
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [
-                    (
-                        event.event_id,
-                        event.session_id,
-                        event.episode_id,
-                        _sequence_index(position, event),
-                        event.event_type,
-                        event.actor,
-                        event.artifact_id,
-                        _datetime(event.created_at),
-                        _json(event),
-                    )
-                    for position, event in enumerate(record.events)
-                ],
+                (
+                    event.event_id,
+                    session_id,
+                    event.episode_id,
+                    sequence_index,
+                    event.event_type,
+                    event.actor,
+                    event.artifact_id,
+                    _datetime(event.created_at),
+                    _json(event),
+                ),
+            )
+
+    def update_event_metadata(
+        self,
+        session_id: str,
+        event_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT event_json
+                FROM session_events
+                WHERE session_id = ? AND event_id = ?
+                """,
+                (session_id, event_id),
+            ).fetchone()
+            if row is None:
+                return
+            event = SessionEvent.model_validate(json.loads(row["event_json"]))
+            event.metadata = metadata
+            conn.execute(
+                """
+                UPDATE session_events
+                SET event_json = ?
+                WHERE session_id = ? AND event_id = ?
+                """,
+                (_json(event), session_id, event_id),
             )
 
     def list(self) -> list[SessionRecord]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT session_id
+                SELECT session_id, participant_run_id, episode_id, environment, status,
+                       participant_profile_json, participant_episode_json,
+                       pre_questionnaire_json, post_questionnaire_json,
+                       analytics_dashboard_json,
+                       started_at, completed_at
                 FROM sessions
                 ORDER BY started_at DESC
                 """
             ).fetchall()
+            session_ids = [row["session_id"] for row in rows]
+            event_rows: list[sqlite3.Row] = []
+            if session_ids:
+                placeholders = ",".join("?" for _ in session_ids)
+                event_rows = conn.execute(
+                    f"""
+                    SELECT session_id, event_json
+                    FROM session_events
+                    WHERE session_id IN ({placeholders})
+                    ORDER BY session_id ASC, sequence_index ASC
+                    """,
+                    session_ids,
+                ).fetchall()
 
-        records: list[SessionRecord] = []
-        for row in rows:
-            record = self.get(row["session_id"])
-            if record is not None:
-                records.append(record)
-        return records
+        events_by_session = _bucket_event_rows(event_rows)
+        return [
+            _record_from_row(row, events_by_session.get(row["session_id"], []))
+            for row in rows
+        ]
 
     def _initialize(self) -> None:
         with self._connect() as conn:
@@ -268,6 +349,12 @@ class SQLiteSessionStore:
                 """
                 CREATE INDEX IF NOT EXISTS idx_session_events_type_created
                 ON session_events(event_type, created_at)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_session_events_episode_type_created
+                ON session_events(episode_id, event_type, created_at)
                 """
             )
             _backfill_sqlite_questionnaire_columns(conn)
@@ -381,8 +468,15 @@ class MySQLSessionStore:
                         _datetime(record.completed_at),
                     ),
                 )
-                cursor.execute("DELETE FROM session_events WHERE session_id = %s", (record.session_id,))
-                cursor.executemany(
+
+            conn.commit()
+
+    def append_event(self, session_id: str, event: SessionEvent) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                sequence_index = _next_mysql_sequence_index(cursor, session_id)
+                event.metadata["sequence_index"] = sequence_index
+                cursor.execute(
                     """
                     INSERT INTO session_events (
                         event_id, session_id, episode_id, sequence_index,
@@ -390,20 +484,48 @@ class MySQLSessionStore:
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    [
-                        (
-                            event.event_id,
-                            event.session_id,
-                            event.episode_id,
-                            _sequence_index(position, event),
-                            event.event_type,
-                            event.actor,
-                            event.artifact_id,
-                            _datetime(event.created_at),
-                            _json(event),
-                        )
-                        for position, event in enumerate(record.events)
-                    ],
+                    (
+                        event.event_id,
+                        session_id,
+                        event.episode_id,
+                        sequence_index,
+                        event.event_type,
+                        event.actor,
+                        event.artifact_id,
+                        _datetime(event.created_at),
+                        _json(event),
+                    ),
+                )
+            conn.commit()
+
+    def update_event_metadata(
+        self,
+        session_id: str,
+        event_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT event_json
+                    FROM session_events
+                    WHERE session_id = %s AND event_id = %s
+                    """,
+                    (session_id, event_id),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return
+                event = SessionEvent.model_validate(json.loads(row["event_json"]))
+                event.metadata = metadata
+                cursor.execute(
+                    """
+                    UPDATE session_events
+                    SET event_json = %s
+                    WHERE session_id = %s AND event_id = %s
+                    """,
+                    (_json(event), session_id, event_id),
                 )
             conn.commit()
 
@@ -412,19 +534,36 @@ class MySQLSessionStore:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT session_id
+                    SELECT session_id, participant_run_id, episode_id, environment, status,
+                           participant_profile_json, participant_episode_json,
+                           pre_questionnaire_json, post_questionnaire_json,
+                           analytics_dashboard_json,
+                           started_at, completed_at
                     FROM sessions
                     ORDER BY started_at DESC
                     """
                 )
                 rows = cursor.fetchall()
+                session_ids = [row["session_id"] for row in rows]
+                event_rows: list[dict[str, Any]] = []
+                if session_ids:
+                    placeholders = ",".join(["%s"] * len(session_ids))
+                    cursor.execute(
+                        f"""
+                        SELECT session_id, event_json
+                        FROM session_events
+                        WHERE session_id IN ({placeholders})
+                        ORDER BY session_id ASC, sequence_index ASC
+                        """,
+                        session_ids,
+                    )
+                    event_rows = cursor.fetchall()
 
-        records: list[SessionRecord] = []
-        for row in rows:
-            record = self.get(row["session_id"])
-            if record is not None:
-                records.append(record)
-        return records
+        events_by_session = _bucket_event_rows(event_rows)
+        return [
+            _record_from_row(row, events_by_session.get(row["session_id"], []))
+            for row in rows
+        ]
 
     def _initialize(self) -> None:
         with self._connect() as conn:
@@ -470,6 +609,7 @@ class MySQLSessionStore:
                 )
                 _ensure_mysql_index(cursor, "session_events", "idx_session_events_session_sequence", "session_id, sequence_index")
                 _ensure_mysql_index(cursor, "session_events", "idx_session_events_type_created", "event_type, created_at")
+                _ensure_mysql_index(cursor, "session_events", "idx_session_events_episode_type_created", "episode_id, event_type, created_at")
                 _backfill_mysql_questionnaire_columns(cursor)
             conn.commit()
 
@@ -521,6 +661,63 @@ def _mysql_config(database_url: str) -> dict[str, str | int]:
         "password": unquote(parsed.password or ""),
         "database": unquote(database),
     }
+
+
+def _record_from_row(row: Any, event_rows: list[Any]) -> SessionRecord:
+    return SessionRecord(
+        session_id=row["session_id"],
+        participant_run_id=row["participant_run_id"] or _fallback_participant_run_id(row["session_id"]),
+        episode_id=row["episode_id"],
+        environment=row["environment"],
+        status=row["status"],
+        participant_profile=ParticipantProfile.model_validate(
+            json.loads(row["participant_profile_json"])
+        ),
+        participant_episode=ParticipantEpisode.model_validate(
+            json.loads(row["participant_episode_json"])
+        ),
+        pre_questionnaire=_parse_json_data(row["pre_questionnaire_json"]),
+        post_questionnaire=_parse_json_data(row["post_questionnaire_json"]),
+        analytics_dashboard=_parse_json_data(row["analytics_dashboard_json"]),
+        events=[
+            SessionEvent.model_validate(json.loads(event_row["event_json"]))
+            for event_row in event_rows
+        ],
+        started_at=_parse_datetime(row["started_at"]) or datetime.now(UTC),
+        completed_at=_parse_datetime(row["completed_at"]),
+    )
+
+
+def _bucket_event_rows(event_rows: list[Any]) -> dict[str, list[Any]]:
+    bucketed: dict[str, list[Any]] = {}
+    for event_row in event_rows:
+        bucketed.setdefault(event_row["session_id"], []).append(event_row)
+    return bucketed
+
+
+def _next_sqlite_sequence_index(conn: sqlite3.Connection, session_id: str) -> int:
+    row = conn.execute(
+        """
+        SELECT COALESCE(MAX(sequence_index) + 1, 0) AS next_sequence_index
+        FROM session_events
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+    return int(row["next_sequence_index"] if row is not None else 0)
+
+
+def _next_mysql_sequence_index(cursor, session_id: str) -> int:
+    cursor.execute(
+        """
+        SELECT COALESCE(MAX(sequence_index) + 1, 0) AS next_sequence_index
+        FROM session_events
+        WHERE session_id = %s
+        """,
+        (session_id,),
+    )
+    row = cursor.fetchone()
+    return int(row["next_sequence_index"] if row is not None else 0)
 
 
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
@@ -653,8 +850,3 @@ def _datetime(value: datetime | None) -> str | None:
 
 def _parse_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
-
-
-def _sequence_index(position: int, event: SessionEvent) -> int:
-    value = event.metadata.get("sequence_index")
-    return value if isinstance(value, int) else position

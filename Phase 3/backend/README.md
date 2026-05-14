@@ -92,6 +92,10 @@ SIMULATOR_LLM_CLASSIFIER_ENABLED=true
 SIMULATOR_LLM_AGENT_ENABLED=true
 SIMULATOR_LLM_PROVIDER=gemini
 SIMULATOR_LLM_MODEL=gemini-2.5-flash-lite
+# Optional per-role model overrides; each falls back to SIMULATOR_LLM_MODEL.
+SIMULATOR_LLM_AGENT_MODEL=gemini-2.5-flash-lite
+SIMULATOR_LLM_CLASSIFIER_MODEL=gemini-2.5-flash-lite
+SIMULATOR_LLM_GRADER_MODEL=gemini-2.5-pro
 SIMULATOR_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 SIMULATOR_LLM_API_KEY=your_real_key
 SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true
@@ -102,6 +106,7 @@ Use `SIMULATOR_STORAGE_BACKEND=sqlite` for local/offline storage and `SIMULATOR_
 Use `SIMULATOR_LLM_PROVIDER=fixture` for deterministic test completions.
 Use `SIMULATOR_LLM_PROVIDER=gemini`, `SIMULATOR_LLM_API_KEY`, and `SIMULATOR_LLM_MODEL` to call the Gemini Developer API through the native `generateContent` endpoint.
 Use `SIMULATOR_LLM_PROVIDER=chat_completions`, `SIMULATOR_LLM_API_KEY`, `SIMULATOR_LLM_MODEL`, and `SIMULATOR_LLM_BASE_URL` for any provider that exposes a compatible chat-completions API.
+Use the role-specific model variables when you want, for example, a cheaper classifier model and a stronger final grader model.
 
 For local team testing, prefer the scripts instead of editing `.env` repeatedly:
 
@@ -113,7 +118,7 @@ For local team testing, prefer the scripts instead of editing `.env` repeatedly:
 ./scripts/dev-local-fallback.sh
 ```
 
-`SIMULATOR_LLM_AGENT_ENABLED` controls chatbot replies. `SIMULATOR_LLM_CLASSIFIER_ENABLED` controls the hidden live semantic classifier. `SIMULATOR_LLM_GRADER_ENABLED` controls the after-session scoring reviewer and does not affect live chatbot usage. The local fallback still performs deterministic semantic classification and scoring when external LLM calls are disabled.
+`SIMULATOR_LLM_AGENT_ENABLED` controls chatbot replies. `SIMULATOR_LLM_CLASSIFIER_ENABLED` controls the hidden semantic classifier, which now runs after the participant event is recorded and appends a separate evaluator event when finished. `SIMULATOR_LLM_GRADER_ENABLED` controls the after-session scoring reviewer and does not affect live chatbot usage. The local fallback still performs deterministic semantic classification and scoring when external LLM calls are disabled.
 
 ## Prompt Assets
 

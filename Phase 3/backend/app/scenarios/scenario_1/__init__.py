@@ -12,6 +12,7 @@ from app.scenarios.scenario_1.uncertainty import (
     classify_message,
     score_profile,
 )
+from app.scenarios.scenario_1.module import Scenario1Module, scenario
 
 
 __all__ = [
@@ -25,4 +26,6 @@ __all__ = [
     "classification_from_metadata",
     "classify_message",
     "score_profile",
+    "Scenario1Module",
+    "scenario",
 ]
