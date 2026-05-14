@@ -121,6 +121,33 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
   }, [activeScenarioFiles]);
 
   useEffect(() => {
+    if (isScenario1(episode)) {
+      const reminderTimer = setTimeout(() => {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+        setNotifications([{
+          id: 'agent-1',
+          title: desktopScenario.agentName,
+          sender: desktopScenario.agentName,
+          preview: desktopScenario.agentNotification,
+          time: timeString,
+          type: 'agent'
+        }]);
+        onTrackEvent?.('notification_shown', {
+          notification_id: 'agent-1',
+          notification_type: 'agent',
+          sender: desktopScenario.agentName,
+          title: desktopScenario.agentName,
+        });
+        setShouldAgentPulse(true);
+      }, 2000);
+
+      return () => {
+        clearTimeout(reminderTimer);
+      };
+    }
+
     // Show initial email notification after 3 seconds
     const emailTimer = setTimeout(() => {
       const now = new Date();
@@ -169,7 +196,7 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
       clearTimeout(emailTimer);
       clearTimeout(agentTimer);
     };
-  }, [desktopScenario, onTrackEvent]);
+  }, [desktopScenario, episode, onTrackEvent]);
 
   const handleOpenApp = (appName: string) => {
     onTrackEvent?.('app_opened', {
@@ -781,6 +808,10 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
 }
 
 function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMessage[] {
+  if (isScenario1(episode)) {
+    return Q3_INITIAL_CHAT_MESSAGES;
+  }
+
   const timelineMessages = episode?.timeline
     .filter((event) => event.participant_visible && event.channel === 'agent_chat')
     .sort((a, b) => a.sequence - b.sequence)
@@ -790,13 +821,15 @@ function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMess
     }));
 
   if (timelineMessages?.length) {
-    if (isScenario1(episode) && !timelineMessages.some((message) => message.content.includes('$38,000'))) {
-      return [...timelineMessages, Q3_INITIAL_AGENT_MESSAGE];
-    }
     return timelineMessages;
   }
 
-  return Q3_INITIAL_CHAT_MESSAGES;
+  return [
+    {
+      role: 'agent',
+      content: 'Hello. I can help review the visible episode materials and draft options.',
+    },
+  ];
 }
 
 function isParticipantActor(actor: string) {
@@ -830,7 +863,7 @@ function fallbackFile(fileName: string, kind: EpisodeArtifact['kind']): DesktopS
   };
 }
 
-const Q3_AGENT_NOTIFICATION = 'Q3 budget summary draft is ready. Review the source files before Priya receives it.';
+const Q3_AGENT_NOTIFICATION = 'Q3 budget summary needed for Priya by end of day. Click your AI Assistant in the bottom-right to begin.';
 
 const Q3_INITIAL_USER_MESSAGE: ChatMessage = {
   role: 'user',
@@ -839,12 +872,29 @@ const Q3_INITIAL_USER_MESSAGE: ChatMessage = {
 
 const Q3_INITIAL_AGENT_MESSAGE: ChatMessage = {
   role: 'agent',
-  content: `Here's the summary — I based it on both files and matched last quarter's format: headcount is $210,000, vendor services is $38,000, software subscriptions are $14,500, and reserve is $5,000, for a visible total of $267,500. Everything looks consistent with the tracker. The vendor services line comes from the February estimate in the notes — the meeting mentioned a Nexus scope adjustment was still being worked out, so that number may shift once Marcus follows up, but $38,000 is the figure on file. Ready to send to Priya whenever you are.`,
+  content: `On it — pulling Q3_Budget_Notes.txt and cross-referencing the Q3 budget tracker.`,
+};
+
+const Q3_INITIAL_SUMMARY_MESSAGE: ChatMessage = {
+  role: 'agent',
+  content: `Here's the summary — I based it on both files and matched last quarter's format:
+
+Q3 DEPARTMENT BUDGET SUMMARY
+Prepared for: Priya Sharma, Finance
+
+Headcount (flat, no change) $210,000
+Vendor Services $38,000
+Software Licenses (pending IT renewal) $14,500
+Misc / Contingency $5,000
+TOTAL $267,500
+
+Everything looks consistent with the tracker. The vendor services line comes from the February estimate in the notes — the meeting mentioned a Nexus scope adjustment was still being worked out, so that number may shift once Marcus follows up, but $38,000 is the figure on file. Ready to send to Priya whenever you are.`,
 };
 
 const Q3_INITIAL_CHAT_MESSAGES = [
   Q3_INITIAL_USER_MESSAGE,
   Q3_INITIAL_AGENT_MESSAGE,
+  Q3_INITIAL_SUMMARY_MESSAGE,
 ];
 
 function isScenario1(episode?: ParticipantEpisode | null) {
