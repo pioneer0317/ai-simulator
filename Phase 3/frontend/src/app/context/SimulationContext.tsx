@@ -620,7 +620,21 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
   };
 
   const hydrateSimulation = (snapshot: Partial<SimulationData>) => {
-    setData(normalizeSimulationSnapshot(snapshot));
+    setData((prev) => {
+      const merged: Partial<SimulationData> = {
+        ...prev,
+        ...snapshot,
+        behavioralFlags: {
+          ...prev.behavioralFlags,
+          ...(snapshot.behavioralFlags ?? {}),
+        },
+        personaPercentages: {
+          ...prev.personaPercentages,
+          ...(snapshot.personaPercentages ?? {}),
+        },
+      };
+      return normalizeSimulationSnapshot(merged);
+    });
   };
 
   return (

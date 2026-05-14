@@ -200,6 +200,74 @@ export interface AdminSessionSummary {
   last_event_at?: string | null;
 }
 
+export interface ScoreEvidence {
+  evidence_id: string;
+  dimension_id: string;
+  signal_id: string;
+  source: string;
+  source_id?: string | null;
+  points: number;
+  excerpt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DimensionScore {
+  dimension_id: string;
+  label: string;
+  score: number;
+  status: 'not_observed' | 'available' | 'observed';
+  opportunity_count: number;
+  evidence: ScoreEvidence[];
+}
+
+export interface DeterministicScoringResult {
+  scores: Record<string, DimensionScore>;
+  unclassified_event_ids: string[];
+  rubric_version: string;
+  scored_at: string;
+}
+
+export interface LLMGradeDimensionReview {
+  score: number;
+  level: number;
+  rationale: string;
+  evidence_event_ids: string[];
+  confidence: number;
+}
+
+export interface LLMGradeFlag {
+  type: string;
+  description: string;
+  event_ids: string[];
+}
+
+export interface LLMGraderParsedReview {
+  dimension_reviews: Record<string, LLMGradeDimensionReview>;
+  flags: LLMGradeFlag[];
+  suggested_rubric_updates: Array<{
+    dimension_id: string;
+    reason: string;
+    suggested_signal: string;
+  }>;
+}
+
+export interface LLMGradeReview {
+  status: 'disabled' | 'completed' | 'failed';
+  provider: string;
+  prompt_version: string;
+  model?: string | null;
+  parsed?: LLMGraderParsedReview | null;
+  raw_response?: string | null;
+  error?: string | null;
+}
+
+export interface EpisodeScoringResponse {
+  session_id: string;
+  episode_id: string;
+  deterministic: DeterministicScoringResult;
+  llm_review: LLMGradeReview;
+}
+
 export interface SessionStateResponse {
   session_id: string;
   participant_run_id: string;
@@ -311,6 +379,12 @@ export async function listAdminSessions(): Promise<AdminSessionSummary[]> {
 export async function getSimulatorSession(sessionId: string): Promise<SessionStateResponse> {
   return request<SessionStateResponse>(`/sessions/${sessionId}`, {
     method: 'GET',
+  });
+}
+
+export async function scoreSimulatorSession(sessionId: string): Promise<EpisodeScoringResponse> {
+  return request<EpisodeScoringResponse>(`/sessions/${sessionId}/score`, {
+    method: 'POST',
   });
 }
 

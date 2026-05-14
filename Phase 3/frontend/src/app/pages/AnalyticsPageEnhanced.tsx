@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSimulation } from '../context/SimulationContext';
 import {
+  getSimulatorSession,
   getStoredSimulatorSessionId,
+  scoreSimulatorSession,
   submitAnalyticsDashboard,
   type AnalyticsDashboardPayload,
+  type EpisodeScoringResponse,
 } from '../lib/simulatorApi';
+import {
+  deriveMisalignmentCount,
+  deriveUserActionsFromEvents,
+} from '../utils/deriveBehavioralActions';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
@@ -12,8 +19,69 @@ import { TrendingUp, Users, Shield, Target, RotateCcw, Activity, CheckCircle, Se
 import { ObserverSummaryDashboard } from '../components/ObserverSummaryDashboard';
 
 export function AnalyticsPageEnhanced() {
-  const { data, resetSimulation } = useSimulation();
+  const { data, hydrateSimulation, resetSimulation } = useSimulation();
   const lastPersistedDashboardRef = useRef<string | null>(null);
+  const hasHydratedFromBackendRef = useRef(false);
+  const [backendScore, setBackendScore] = useState<EpisodeScoringResponse | null>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (hasHydratedFromBackendRef.current) return;
+    const sessionId = getStoredSimulatorSessionId();
+    if (!sessionId) {
+      setIsLoadingSession(false);
+      return;
+    }
+    hasHydratedFromBackendRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await getSimulatorSession(sessionId);
+        if (cancelled) return;
+
+        const agentName = state.participant_episode?.agent_profile?.display_name ?? 'AI Assistant';
+        const derivedActions = deriveUserActionsFromEvents(state.events, {
+          agentName,
+          sessionStartedAt: state.started_at,
+        });
+        const misalignmentCount = deriveMisalignmentCount(state.events);
+
+        hydrateSimulation({
+          userActions: derivedActions,
+          misalignmentCount,
+          sessionStartTime: state.started_at ? new Date(state.started_at) : null,
+          sessionEndTime: state.completed_at ? new Date(state.completed_at) : null,
+        });
+
+        try {
+          const score = await scoreSimulatorSession(sessionId);
+          if (!cancelled) {
+            setBackendScore(score);
+          }
+        } catch (scoreError) {
+          if (!cancelled) {
+            console.warn('Unable to fetch deterministic score', scoreError);
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSessionLoadError(
+            error instanceof Error ? error.message : 'Unable to load session results.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSession(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateSimulation]);
 
   // Behavioral Telemetry: Categorize all actions
   const verificationActions = data.userActions.filter((a) => a.category === 'verification');
@@ -247,7 +315,66 @@ export function AnalyticsPageEnhanced() {
               </p>
             </div>
           )}
+          {isLoadingSession && (
+            <div className="mt-6 inline-flex items-center gap-3 rounded-xl border border-cyan-500/50 bg-cyan-900/30 px-5 py-3 text-sm font-semibold text-cyan-100">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+              Loading session results from backend...
+            </div>
+          )}
+          {sessionLoadError && (
+            <div className="mt-6 inline-block rounded-xl border border-red-500/50 bg-red-900/30 px-5 py-3 text-sm font-semibold text-red-200">
+              Could not load backend session results: {sessionLoadError}
+            </div>
+          )}
         </div>
+
+        {/* Backend Deterministic Score */}
+        {backendScore && (
+          <Card className="p-8 mb-12 bg-slate-800 border-2 border-emerald-600 shadow-xl">
+            <h3 className="text-2xl font-bold text-white mb-2 flex items-center gap-3">
+              <div className="text-3xl">🧮</div>
+              Backend Rubric Scores
+            </h3>
+            <p className="text-slate-400 mb-6">
+              Deterministic rubric version{' '}
+              <span className="font-mono text-emerald-300">{backendScore.deterministic.rubric_version}</span>
+              {backendScore.llm_review.status === 'completed' && (
+                <span className="ml-2 text-cyan-200">
+                  (LLM grader: {backendScore.llm_review.provider})
+                </span>
+              )}
+            </p>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.values(backendScore.deterministic.scores).map((dimension) => {
+                const llmReview = backendScore.llm_review.parsed?.dimension_reviews?.[dimension.dimension_id];
+                return (
+                  <div
+                    key={dimension.dimension_id}
+                    className="p-5 rounded-xl border-2 border-slate-600 bg-slate-900/60"
+                  >
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h4 className="text-base font-bold text-white">{dimension.label}</h4>
+                      <span className="text-3xl font-bold text-emerald-300">{dimension.score}</span>
+                    </div>
+                    <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+                      Status: {dimension.status} • Evidence: {dimension.evidence.length}
+                    </p>
+                    {llmReview && (
+                      <p className="text-sm text-cyan-200">
+                        LLM rationale: {llmReview.rationale}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {backendScore.llm_review.status === 'failed' && backendScore.llm_review.error && (
+              <p className="mt-4 text-sm text-amber-300">
+                LLM grader failed: {backendScore.llm_review.error}
+              </p>
+            )}
+          </Card>
+        )}
 
         {/* Primary Metrics */}
         <div className="grid md:grid-cols-4 gap-6 mb-12">
