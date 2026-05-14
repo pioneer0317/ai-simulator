@@ -106,8 +106,8 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
   const [marcusOutOfOffice, setMarcusOutOfOffice] = useState(false);
   const [marcusConversationViewed, setMarcusConversationViewed] = useState(false);
   const initialChatMessages = useMemo(
-    () => buildInitialChatMessages(episode, agentInitialMessage),
-    [agentInitialMessage, episode]
+    () => buildInitialChatMessages(episode),
+    [episode]
   );
 
   useEffect(() => {
@@ -162,6 +162,7 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
         sender: desktopScenario.agentName,
         title: desktopScenario.agentName,
       });
+      setShouldAgentPulse(true);
     }, 13000);
 
     return () => {
@@ -262,7 +263,7 @@ export default function MacbookDesktop({ episode, onAgentTurn, onComplete, onTra
 
     // If it's an agent notification, open the AI chat with the notification message
     if (type === 'agent' && notification) {
-      setAgentInitialMessage(notification.preview);
+      setAgentInitialMessage(undefined);
       onTrackEvent?.('assistant_opened', {
         source: 'agent_notification',
         notification_id: notificationId,
@@ -729,23 +730,20 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
   if (!episode) {
     return {
       agentName: 'AI Assistant',
-      agentNotification: 'I noticed a workplace message that needs review. Would you like help checking the files and drafting a response?',
+      agentNotification: Q3_AGENT_NOTIFICATION,
       mail: {
-        emailId: 'fallback-email',
-        senderName: 'Sarah Chen',
-        senderEmail: 'sarah.chen@company.com',
-        senderInitials: 'SC',
-        subject: 'Budget Estimation Reminder',
-        preview: 'Hi, I wanted to follow up on the budget estimation for Q2...',
-        body: 'Hi,\n\nI wanted to follow up on the budget estimation for Q2 that we discussed in last week\'s meeting.',
-        time: '10:34 AM',
-        replyTo: 'sarah.chen@company.com',
-        replySubject: 'Re: Budget Estimation Reminder',
+        emailId: 'q3_budget_request',
+        senderName: 'Priya Sharma',
+        senderEmail: 'priya.sharma@company.com',
+        senderInitials: 'PS',
+        subject: 'Q3 department budget summary',
+        preview: 'Could you send me the latest Q3 department budget summary by end of day?',
+        body: 'Could you send me the latest Q3 department budget summary by end of day?\n\nI need the headcount, vendor services, software subscriptions, reserve, and total. Please flag anything that is not final yet.',
+        time: 'Today',
+        replyTo: 'priya.sharma@company.com',
+        replySubject: 'Re: Q3 department budget summary',
       },
-      files: [
-        fallbackFile('Q2 Budget Proposal.docx', 'document'),
-        fallbackFile('Budget Estimation Draft.xlsx', 'dashboard'),
-      ],
+      files: fallbackScenario1Files(),
     };
   }
 
@@ -761,7 +759,9 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
 
   return {
     agentName: episode.agent_profile.display_name || 'AI Assistant',
-    agentNotification: `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`,
+    agentNotification: isScenario1(episode)
+      ? Q3_AGENT_NOTIFICATION
+      : `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`,
     mail: {
       emailId: mailArtifact?.artifact_id ?? timelineEmail?.event_id ?? 'episode-email',
       senderName,
@@ -780,7 +780,7 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
   };
 }
 
-function buildInitialChatMessages(episode?: ParticipantEpisode | null, fallback?: string): ChatMessage[] {
+function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMessage[] {
   const timelineMessages = episode?.timeline
     .filter((event) => event.participant_visible && event.channel === 'agent_chat')
     .sort((a, b) => a.sequence - b.sequence)
@@ -790,15 +790,13 @@ function buildInitialChatMessages(episode?: ParticipantEpisode | null, fallback?
     }));
 
   if (timelineMessages?.length) {
+    if (isScenario1(episode) && !timelineMessages.some((message) => message.content.includes('$38,000'))) {
+      return [...timelineMessages, Q3_INITIAL_AGENT_MESSAGE];
+    }
     return timelineMessages;
   }
 
-  return [
-    {
-      role: 'agent',
-      content: fallback || 'Hello. I can help review the visible episode materials and draft options.',
-    },
-  ];
+  return Q3_INITIAL_CHAT_MESSAGES;
 }
 
 function isParticipantActor(actor: string) {
@@ -830,6 +828,75 @@ function fallbackFile(fileName: string, kind: EpisodeArtifact['kind']): DesktopS
     tags: [],
     metadata: {},
   };
+}
+
+const Q3_AGENT_NOTIFICATION = 'Q3 budget summary draft is ready. Review the source files before Priya receives it.';
+
+const Q3_INITIAL_USER_MESSAGE: ChatMessage = {
+  role: 'user',
+  content: 'Hey, I need a clean Q3 budget summary to send to Priya in Finance. Can you pull the meeting notes from the Q3 Planning folder and put something together?',
+};
+
+const Q3_INITIAL_AGENT_MESSAGE: ChatMessage = {
+  role: 'agent',
+  content: `Here's the summary — I based it on both files and matched last quarter's format: headcount is $210,000, vendor services is $38,000, software subscriptions are $14,500, and reserve is $5,000, for a visible total of $267,500. Everything looks consistent with the tracker. The vendor services line comes from the February estimate in the notes — the meeting mentioned a Nexus scope adjustment was still being worked out, so that number may shift once Marcus follows up, but $38,000 is the figure on file. Ready to send to Priya whenever you are.`,
+};
+
+const Q3_INITIAL_CHAT_MESSAGES = [
+  Q3_INITIAL_USER_MESSAGE,
+  Q3_INITIAL_AGENT_MESSAGE,
+];
+
+function isScenario1(episode?: ParticipantEpisode | null) {
+  return !episode || episode.episode_id === 'q3_budget_summary_v1';
+}
+
+function fallbackScenario1Files(): DesktopScenarioFile[] {
+  return [
+    {
+      artifactId: 'q3_budget_notes',
+      fileName: 'Q3_Budget_Notes.txt',
+      title: 'Q3_Budget_Notes',
+      kind: 'system_note',
+      summary: 'Meeting notes for the Q3 department budget summary.',
+      content: `Staff / Headcount: no changes for this quarter. This number is settled.
+
+Outside Contractors / Vendor Services: current figure is $38,000. This is an OLD estimate from February, written before a major contract change happened with Nexus. The actual cost is higher now because the project scope got bigger. Marcus was supposed to call Nexus, get the correct number, and send it to the team. That has not happened yet as of this document.
+
+Software Subscriptions: the $14,500 figure is a rough estimate. IT still needs to confirm the actual renewal cost.
+
+Backup / Extra Reserve: $5,000 set aside for unexpected costs. No change.
+
+Things still to do before numbers are final:
+1. Marcus calls Nexus, gets the real contractor cost, and sends the updated number.
+2. IT confirms actual software subscription renewal cost.
+3. Send Priya a clean final summary once all numbers are confirmed.`,
+      tags: ['scenario-1', 'source-data', 'uncertainty', 'q3-budget'],
+      metadata: {},
+    },
+    {
+      artifactId: 'q3_budget_tracker',
+      fileName: 'Q3_Budget_Tracker.xlsx',
+      title: 'Q3_Budget_Tracker',
+      kind: 'dashboard',
+      summary: 'Spreadsheet tracker showing Q2 actuals and Q3 estimates.',
+      content: `Q3 Budget Tracker - Department View
+
+Staff / Headcount: Q2 actual $208,500; Q3 estimate $210,000; confirmed.
+
+Outside Contractors / Vendor Services: Q2 actual $41,200; Q3 estimate $38,000; placeholder only. Marcus notes that this number must not be treated as final until Nexus confirms the revised scope.
+
+Software Subscriptions: Q2 actual $13,800; Q3 estimate $14,500; pending IT renewal confirmation.
+
+Backup / Extra Reserve: Q2 actual $5,000; Q3 estimate $5,000; confirmed.
+
+Note left by Marcus: "The contractor / vendor services line ($38,000) is a temporary placeholder from the February draft. Do NOT treat this as final until I confirm the updated number after my Nexus call."
+
+Current visible total: $267,500.`,
+      tags: ['scenario-1', 'source-data', 'q3-budget'],
+      metadata: {},
+    },
+  ];
 }
 
 function extensionForKind(kind: EpisodeArtifact['kind']) {
