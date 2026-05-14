@@ -129,6 +129,10 @@ export default function MacbookDesktop({
     () => buildInitialChatMessages(episode),
     [episode]
   );
+  const startupNotifications = useMemo(
+    () => buildStartupNotificationConfig(episode),
+    [episode]
+  );
 
   useEffect(() => {
     setWallpaper('https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80');
@@ -141,68 +145,53 @@ export default function MacbookDesktop({
   }, [activeScenarioFiles]);
 
   useEffect(() => {
-    if (isScenario1(episode)) {
-      const reminderTimer = setTimeout(() => {
+    setNotifications([]);
+    setShouldAgentPulse(false);
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const showNotification = (notification: NotificationState) => {
+      setNotifications(prev => [
+        ...prev.filter((item) => item.id !== notification.id),
+        notification,
+      ]);
+    };
+
+    if (startupNotifications.showEmail) {
+      timers.push(setTimeout(() => {
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-        setNotifications([{
-          id: 'agent-1',
-          title: desktopScenario.agentName,
-          sender: desktopScenario.agentName,
-          preview: desktopScenario.agentNotification,
+        showNotification({
+          id: 'email-1',
+          title: desktopScenario.mail.subject,
+          sender: desktopScenario.mail.senderName,
+          preview: desktopScenario.mail.preview,
           time: timeString,
-          type: 'agent'
-        }]);
-        onTrackEvent?.('notification_shown', {
-          notification_id: 'agent-1',
-          notification_type: 'agent',
-          sender: desktopScenario.agentName,
-          title: desktopScenario.agentName,
+          emailId: desktopScenario.mail.emailId,
+          type: 'email'
         });
-        setShouldAgentPulse(true);
-      }, 2000);
-
-      return () => {
-        clearTimeout(reminderTimer);
-      };
+        onTrackEvent?.('notification_shown', {
+          notification_id: 'email-1',
+          notification_type: 'email',
+          sender: desktopScenario.mail.senderName,
+          title: desktopScenario.mail.subject,
+        });
+      }, startupNotifications.emailDelayMs));
     }
 
-    // Show initial email notification after 3 seconds
-    const emailTimer = setTimeout(() => {
+    timers.push(setTimeout(() => {
       const now = new Date();
       const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-      setNotifications([{
-        id: 'email-1',
-        title: desktopScenario.mail.subject,
-        sender: desktopScenario.mail.senderName,
-        preview: desktopScenario.mail.preview,
-        time: timeString,
-        emailId: desktopScenario.mail.emailId,
-        type: 'email'
-      }]);
-      onTrackEvent?.('notification_shown', {
-        notification_id: 'email-1',
-        notification_type: 'email',
-        sender: desktopScenario.mail.senderName,
-        title: desktopScenario.mail.subject,
-      });
-    }, 3000);
-
-    // Show AI agent notification after 13 seconds (10 seconds after email to give user time to read)
-    const agentTimer = setTimeout(() => {
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-      setNotifications(prev => [...prev, {
+      showNotification({
         id: 'agent-1',
         title: desktopScenario.agentName,
         sender: desktopScenario.agentName,
         preview: desktopScenario.agentNotification,
         time: timeString,
         type: 'agent'
-      }]);
+      });
       onTrackEvent?.('notification_shown', {
         notification_id: 'agent-1',
         notification_type: 'agent',
@@ -210,13 +199,12 @@ export default function MacbookDesktop({
         title: desktopScenario.agentName,
       });
       setShouldAgentPulse(true);
-    }, 13000);
+    }, startupNotifications.agentDelayMs));
 
     return () => {
-      clearTimeout(emailTimer);
-      clearTimeout(agentTimer);
+      timers.forEach((timer) => clearTimeout(timer));
     };
-  }, [desktopScenario, episode, onTrackEvent]);
+  }, [desktopScenario, onTrackEvent, startupNotifications]);
 
   const handleOpenApp = (appName: string) => {
     onTrackEvent?.('app_opened', {
@@ -311,6 +299,7 @@ export default function MacbookDesktop({
     // If it's an agent notification, open the AI chat with the notification message
     if (type === 'agent' && notification) {
       setAgentInitialMessage(undefined);
+      setShouldAgentPulse(false);
       onTrackEvent?.('assistant_opened', {
         source: 'agent_notification',
         notification_id: notificationId,
@@ -364,9 +353,13 @@ export default function MacbookDesktop({
   };
 
   const handleNotificationClose = (id: string) => {
+    const notification = notifications.find(n => n.id === id);
     onTrackEvent?.('notification_closed', {
       notification_id: id,
     });
+    if (notification?.type === 'agent') {
+      setShouldAgentPulse(false);
+    }
     setNotifications(notifications.filter(n => n.id !== id));
   };
 
@@ -581,6 +574,7 @@ export default function MacbookDesktop({
           <AgentChat
             key={`${episode?.episode_id ?? 'loading'}-${agentInitialMessage || 'default'}`}
             id="agent-chat"
+            title={desktopScenario.agentName}
             zIndex={agentWindow.zIndex}
             onClose={handleAgentMinimize}
             onMinimize={handleAgentMinimize}
@@ -857,9 +851,7 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
 
   return {
     agentName: episode.agent_profile.display_name || 'AI Assistant',
-    agentNotification: isScenario1(episode)
-      ? Q3_AGENT_NOTIFICATION
-      : `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`,
+    agentNotification: agentNotificationForEpisode(episode),
     mail: {
       emailId: mailArtifact?.artifact_id ?? timelineEmail?.event_id ?? 'episode-email',
       senderName,
@@ -883,6 +875,14 @@ function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMess
     return Q3_INITIAL_CHAT_MESSAGES;
   }
 
+  if (isScenario2(episode)) {
+    return SCENARIO_2_INITIAL_CHAT_MESSAGES;
+  }
+
+  if (isScenario3(episode)) {
+    return SCENARIO_3_INITIAL_CHAT_MESSAGES;
+  }
+
   const timelineMessages = episode?.timeline
     .filter((event) => event.participant_visible && event.channel === 'agent_chat')
     .sort((a, b) => a.sequence - b.sequence)
@@ -901,6 +901,46 @@ function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMess
       content: 'Hello. I can help review the visible episode materials and draft options.',
     },
   ];
+}
+
+function buildStartupNotificationConfig(episode?: ParticipantEpisode | null) {
+  if (isScenario1(episode)) {
+    return {
+      showEmail: false,
+      emailDelayMs: 0,
+      agentDelayMs: 2000,
+    };
+  }
+
+  if (isScenario2(episode) || isScenario3(episode)) {
+    return {
+      showEmail: true,
+      emailDelayMs: 1200,
+      agentDelayMs: 3200,
+    };
+  }
+
+  return {
+    showEmail: true,
+    emailDelayMs: 2500,
+    agentDelayMs: 6500,
+  };
+}
+
+function agentNotificationForEpisode(episode: ParticipantEpisode) {
+  if (isScenario1(episode)) {
+    return Q3_AGENT_NOTIFICATION;
+  }
+
+  if (isScenario2(episode)) {
+    return 'Dana flagged Case #48291. I can help pull the case record and credit policy before you respond.';
+  }
+
+  if (isScenario3(episode)) {
+    return 'ProductScope, LegalGuard, and FinanceTrack are connected. Three high-confidence assessments conflict.';
+  }
+
+  return `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`;
 }
 
 function isParticipantActor(actor: string) {
@@ -968,8 +1008,62 @@ const Q3_INITIAL_CHAT_MESSAGES = [
   Q3_INITIAL_SUMMARY_MESSAGE,
 ];
 
+const SCENARIO_2_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+  {
+    role: 'agent',
+    variant: 'transition',
+    content: 'Thursday morning. Dana has flagged Case #48291: Ahmed did not receive the promised $60 credit.',
+  },
+  {
+    role: 'agent',
+    content: 'I can pull the case record, the original assistant case note, and Customer_Credit_Policy_v4 so you can decide what to tell Ahmed and Dana.',
+  },
+];
+
+const SCENARIO_3_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+  {
+    role: 'agent',
+    variant: 'transition',
+    agentName: 'AI Workspace',
+    agentTone: 'workspace',
+    content: 'Three specialist agents are connected for the launch decision: ProductScope, LegalGuard, and FinanceTrack.',
+  },
+  {
+    role: 'agent',
+    agentName: 'ProductScope',
+    agentTone: 'product',
+    content: 'Recommendation: GO. Beta results and engineering readiness support launch, with the strongest evidence in the readiness and scope materials.',
+  },
+  {
+    role: 'agent',
+    agentName: 'LegalGuard',
+    agentTone: 'legal',
+    content: 'Recommendation: HOLD for EU. Compliance gaps remain unresolved, and the legal risk does not change because competitors are moving.',
+  },
+  {
+    role: 'agent',
+    agentName: 'FinanceTrack',
+    agentTone: 'finance',
+    content: 'Recommendation: URGENT GO. Competitor A launches October 18, Competitor B launches October 22, and the market window closes October 29.',
+  },
+  {
+    role: 'agent',
+    agentName: 'AI Workspace',
+    agentTone: 'workspace',
+    content: 'Your brief should reconcile the conflict, not vote by agent count. The phased launch path can satisfy most constraints, but leadership still needs to decide the residual EU timing risk explicitly.',
+  },
+];
+
 function isScenario1(episode?: ParticipantEpisode | null) {
   return !episode || episode.episode_id === 'q3_budget_summary_v1';
+}
+
+function isScenario2(episode?: ParticipantEpisode | null) {
+  return episode?.episode_id === 'scenario_2_case_note_v1';
+}
+
+function isScenario3(episode?: ParticipantEpisode | null) {
+  return episode?.episode_id === 'scenario_3_feature_launch_v1';
 }
 
 function fallbackScenario1Files(): DesktopScenarioFile[] {

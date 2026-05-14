@@ -5,10 +5,13 @@ export type ChatMessage = {
   role: 'user' | 'agent' | 'loading';
   content: string;
   variant?: 'normal' | 'nudge' | 'transition' | 'error';
+  agentName?: string;
+  agentTone?: 'assistant' | 'workspace' | 'product' | 'legal' | 'finance';
 };
 
 interface AgentChatProps {
   id: string;
+  title?: string;
   zIndex: number;
   onClose: () => void;
   onMinimize: () => void;
@@ -29,9 +32,51 @@ interface AgentChatProps {
   shouldPulse?: boolean;
 }
 
-const AIIcon = () => (
-  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg ring-1 ring-purple-400/50">
-    <svg className="relative z-10 h-6 w-6" fill="none" viewBox="0 0 20 20">
+const agentToneStyles = {
+  assistant: {
+    icon: 'from-purple-500 to-purple-600 ring-purple-400/50',
+    label: 'text-purple-100',
+    bubble: 'border-amber-200/30 bg-black/25 text-white',
+  },
+  workspace: {
+    icon: 'from-cyan-500 to-slate-600 ring-cyan-300/50',
+    label: 'text-cyan-100',
+    bubble: 'border-cyan-200/50 bg-cyan-950/45 text-white',
+  },
+  product: {
+    icon: 'from-emerald-400 to-teal-600 ring-emerald-300/50',
+    label: 'text-emerald-100',
+    bubble: 'border-emerald-200/45 bg-emerald-950/35 text-white',
+  },
+  legal: {
+    icon: 'from-blue-400 to-indigo-600 ring-blue-300/50',
+    label: 'text-blue-100',
+    bubble: 'border-blue-200/45 bg-blue-950/35 text-white',
+  },
+  finance: {
+    icon: 'from-amber-400 to-orange-600 ring-amber-300/50',
+    label: 'text-amber-100',
+    bubble: 'border-amber-200/55 bg-amber-950/35 text-white',
+  },
+};
+
+const initialsForAgent = (name?: string) => {
+  if (!name) return 'AI';
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'AI';
+};
+
+const AIIcon = ({ tone = 'assistant', label }: { tone?: ChatMessage['agentTone']; label?: string }) => {
+  const styles = agentToneStyles[tone ?? 'assistant'];
+
+  return (
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-lg ring-1 ${styles.icon}`}>
+      <svg className="relative z-10 h-5 w-5" fill="none" viewBox="0 0 20 20">
       <rect x="5" y="6" width="10" height="7" rx="1" fill="white" />
       <circle cx="8" cy="9" r="1" fill="#A855F7" />
       <circle cx="12" cy="9" r="1" fill="#A855F7" />
@@ -44,8 +89,10 @@ const AIIcon = () => (
       <circle cx="8.5" cy="14.5" r="0.8" fill="#10B981" opacity="0.8" />
       <circle cx="11.5" cy="14.5" r="0.8" fill="#A855F7" opacity="0.8" />
     </svg>
-  </div>
-);
+      <span className="sr-only">{label || initialsForAgent(label)}</span>
+    </div>
+  );
+};
 
 const UserAvatar = () => (
   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gray-500 to-gray-600 shadow-lg ring-1 ring-white/20">
@@ -62,6 +109,7 @@ const defaultSuggestions = [
 
 export function AgentChat({
   id,
+  title = 'AI Assistant',
   zIndex,
   onClose,
   onMinimize,
@@ -226,8 +274,8 @@ export function AgentChat({
     : {
         left: `${position.x}px`,
         top: `${position.y}px`,
-        width: '420px',
-        height: '600px',
+        width: '500px',
+        height: '680px',
         zIndex,
       };
 
@@ -283,7 +331,7 @@ export function AgentChat({
             />
           </div>
           <div className="flex-1 text-center text-sm font-semibold text-white">
-            AI Assistant
+            {title}
           </div>
         </div>
 
@@ -305,9 +353,11 @@ export function AgentChat({
                   />
                 )}
 
-                {item.role !== 'user' && <AIIcon />}
+                {item.role !== 'user' && (
+                  <AIIcon tone={item.agentTone} label={item.agentName} />
+                )}
                 {item.role === 'loading' ? (
-                  <div className="max-w-[280px] rounded-2xl border border-amber-200/30 bg-black/25 px-4 py-3 text-white shadow-lg backdrop-blur-xl">
+                  <div className="max-w-[78%] rounded-2xl border border-amber-200/30 bg-black/25 px-4 py-3 text-white shadow-lg backdrop-blur-xl">
                     <div className="flex items-center gap-2 text-white/70">
                       <div className="flex gap-1">
                         <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/70" />
@@ -319,7 +369,7 @@ export function AgentChat({
                   </div>
                 ) : (
                   <div
-                    className={`relative z-10 max-w-[280px] rounded-2xl px-4 py-3 shadow-lg backdrop-blur-xl transition-all ${
+                    className={`relative z-10 max-w-[78%] rounded-2xl px-4 py-3 shadow-lg backdrop-blur-xl transition-all ${
                       item.role === 'user'
                         ? 'bg-purple-500/90 text-white'
                         : item.variant === 'transition'
@@ -328,10 +378,15 @@ export function AgentChat({
                             ? 'border border-amber-200/50 bg-amber-950/40 text-white'
                             : item.variant === 'error'
                               ? 'border border-red-200/50 bg-red-950/40 text-white'
-                              : 'border border-amber-200/30 bg-black/25 text-white'
+                              : `border ${agentToneStyles[item.agentTone ?? 'assistant'].bubble}`
                     } ${index === 0 && showMessageGlow ? 'cursor-pointer' : ''}`}
                     onClick={() => index === 0 && setHasClickedInitialMessage(true)}
                   >
+                    {item.role !== 'user' && item.agentName && (
+                      <div className={`mb-1 text-[11px] font-semibold uppercase ${agentToneStyles[item.agentTone ?? 'assistant'].label}`}>
+                        {item.agentName}
+                      </div>
+                    )}
                     {item.variant && item.variant !== 'normal' && (
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-white/60">
                         {item.variant === 'transition'

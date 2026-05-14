@@ -53,9 +53,22 @@ const fallbackMailMessage: DesktopMailMessage = {
   replySubject: 'Re: Budget Estimation Reminder',
 };
 
+const DEFAULT_WINDOW_SIZE = { width: 600, height: 400 };
+
+function getDefaultWindowSize(app: string): { width: number; height: number } {
+  switch (app) {
+    case 'mail':
+      return { width: 980, height: 640 };
+    case 'messages':
+      return { width: 900, height: 620 };
+    default:
+      return DEFAULT_WINDOW_SIZE;
+  }
+}
+
 export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, workFiles = [], sentEmails = [], onSendEmail, marcusMessages = [], onMarcusConversationViewed, onTrackEvent }: WindowProps) {
   const [position, setPosition] = useState({ x: Math.random() * 200 + 100, y: Math.random() * 100 + 50 });
-  const [size, setSize] = useState({ width: 600, height: 400 });
+  const [size, setSize] = useState(() => getDefaultWindowSize(app));
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isMaximized, setIsMaximized] = useState(false);

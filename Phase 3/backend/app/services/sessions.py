@@ -685,6 +685,14 @@ class EpisodeSessionService:
                 target_signals_missing=missing,
             )
 
+        if self._has_terminal_scenario_decision(record, episode):
+            return ProgressionDecision(
+                scenario_id=record.episode_id,
+                agent_turn_count=agent_turn_count,
+                target_signals_met=met,
+                target_signals_missing=missing,
+            )
+
         if any(
             event.event_type == "phase_changed"
             and event.metadata.get("reason") == "force_progress_after_limit"
@@ -814,6 +822,27 @@ class EpisodeSessionService:
                 )
             )
             if stakeholder_error_on_track:
+                return True
+
+        return False
+
+    @staticmethod
+    def _has_terminal_scenario_decision(record: SessionRecord, episode) -> bool:
+        scenario_module = get_scenario_module(episode.episode_id)
+        if scenario_module is None:
+            return False
+
+        for event in record.events:
+            if event.actor != "participant" or not event.content:
+                continue
+            if event.event_type not in {"user_message", "decision_submitted", "final_response"}:
+                continue
+
+            classification = scenario_module.classification_from_metadata(event.metadata)
+            if classification is None:
+                classification = scenario_module.classify_message(event.content)
+
+            if classification is not None and classification.terminal:
                 return True
 
         return False

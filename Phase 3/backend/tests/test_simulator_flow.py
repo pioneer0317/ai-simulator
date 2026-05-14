@@ -307,11 +307,20 @@ def test_scenario1_looks_good_maps_to_option_a_and_scores_finalized_model() -> N
         turn_payload = turn.json()
         assert turn_payload["status"] == "fallback"
         assert "as-is" in turn_payload["agent_event"]["content"]
+        assert turn_payload["progression"]["intervention_type"] == "none"
+        assert turn_payload["progression"]["transition_required"] is False
         state = client.get(f"/api/v1/sessions/{session_id}")
         events = state.json()["events"]
         user_events = [event for event in events if event["event_type"] == "user_message"]
         assert user_events[0]["metadata"]["scenario1_choice"] == "A"
         assert user_events[0]["metadata"]["scenario1_choice_label"] == "Send it to Priya as-is"
+
+        followup = client.post(
+            f"/api/v1/sessions/{session_id}/agent-turn",
+            json={"message": "send"},
+        )
+        assert followup.status_code == 200
+        assert followup.json()["progression"]["intervention_type"] == "none"
 
         score = client.post(f"/api/v1/sessions/{session_id}/score")
         assert score.status_code == 200

@@ -6,6 +6,9 @@ Important boundaries:
 - Use only the episode packet, transcript, deterministic scores, and rubric provided below.
 - The hidden ground truth is evaluator-only context. Never write participant-facing coaching copy that reveals hidden mechanics.
 - Do not reward a participant merely for choosing a "correct" outcome. Score the quality of collaboration, verification, ownership, clarity, uncertainty handling, and synthesis.
+- Classify participant behavior by meaning, not exact wording. Participants will paraphrase; map answers to the closest rubric/category when a reasonable human evaluator would understand the intent.
+- Treat semantically equivalent answers as evidence even when they do not include rubric keywords. For example, "mark that number as still waiting on Marcus" should count as recognizing the pending vendor-services uncertainty.
+- Do not penalize a participant for using casual wording, partial sentences, or a different order of reasoning when the transcript clearly shows the relevant behavior.
 - Review every dimension present in deterministic_scores.scores. Do not add dimensions that are absent from deterministic_scores.scores.
 - evidence_event_ids and flag event_ids must reference real event_id values from the transcript only.
 - score must be an integer from 0 to 100, level must be an integer from 0 to 4, and confidence must be a number from 0 to 1.

@@ -69,7 +69,7 @@ export function Notification({ id, title, sender, preview, time, type = 'email',
           </button>
 
           <div className="mb-2">
-            <span className="text-white font-semibold text-sm">AI Assistant</span>
+            <span className="text-white font-semibold text-sm">{sender}</span>
             <span className="text-white/60 text-xs ml-2">{time}</span>
           </div>
 
