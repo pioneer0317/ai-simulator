@@ -1,6 +1,6 @@
 # LLM Architecture
 
-This document explains how the current system uses LLMs for the participant-facing chatbot and the fallback post-session grader. The main design choice is that both LLM paths are bounded by the episode packet. The model is not treated as a free agent with open access to company data, email, files, or the internet.
+This document explains how the current system uses three bounded LLM roles: the participant-facing chatbot, the hidden live semantic classifier, and the hidden post-session grader. The main design choice is that all LLM paths are bounded by the episode packet. The model is not treated as a free agent with open access to company data, email, files, or the internet.
 
 ## High-Level Flow
 
@@ -12,6 +12,8 @@ Frontend chat UI
 Backend /agent-turn endpoint
    ->
 Session transcript + episode packet + prompt template
+   ->
+Hidden semantic classifier records any matched scenario option/rubric signal
    ->
 Configured LLM client, or deterministic fallback
    ->
@@ -29,14 +31,14 @@ Completed session
    ->
 Backend /score endpoint
    ->
-Deterministic scorer
+Deterministic scorer consumes raw events plus semantic classifications
    ->
 Secondary/fallback LLM grader review
    ->
 Score response for analysis/admin use
 ```
 
-## Two Separate LLM Components
+## Three Separate LLM Roles
 
 ### 1. Participant-Facing Assistant
 
@@ -58,7 +60,38 @@ The implementation is split across:
 
 When enabled, this assistant can respond to varied wording, follow-up questions, summary requests, tone requests, and drafting help. It still has to stay inside the scenario contract. For example, if the participant asks Mira, "Can you check which number is right?", the backend gives Mira the episode context that says the sent summary used `3%`, the source dashboard says `13%`, and the dashboard is the stronger source for the immediate correction.
 
-### 2. Evaluator/Grader LLM
+### 2. Hidden Semantic Classifier
+
+The semantic classifier runs during the live scenario after participant messages
+or final decision events. It is hidden from the participant and returns strict
+JSON. Its job is to map participant meaning to scenario options and rubric
+signals, not to produce a score or assistant reply.
+
+The implementation is split across:
+
+- `backend/app/services/sessions.py`: appends the raw participant event, calls the classifier, enriches the raw event metadata, and appends a separate `semantic_classification` evaluator event for auditability.
+- `backend/app/services/llm/classifier.py`: builds the classifier prompt, validates JSON, applies confidence thresholds, and falls back to deterministic scenario rules when disabled or unusable.
+- `configs/prompts/scenario1_semantic_classifier.md`: prompt template for the finalized Scenario 1 classifier.
+- `backend/app/scenarios/scenario_1/uncertainty.py`: deterministic fallback classifier and shared Scenario 1 choice metadata.
+
+For finalized Scenario 1, the classifier maps paraphrases into Choice A, B, C,
+C-i, C-ii, C-iii, or D. A short answer like "looks good" is classified as
+Choice A only because its meaning is approval to send as-is, not because that
+exact string is special. A phrase such as "wait, ask Marcus to confirm the
+Nexus contractor number" maps to Choice C-i.
+
+The participant-facing agent does not receive hidden evaluator classification
+events in its prompt transcript. This prevents scoring/rubric leakage while
+still letting progression and scoring use the classifier output.
+
+If a participant message does not fit any finalized Scenario 1 choice, the
+backend still appends a `semantic_classification` evaluator event with
+`classification_status="unclassified"`. This keeps deviations analyzable instead
+of hiding them. Researchers can distinguish participants who followed a clear
+scenario path from participants who reached a similar final state only after
+unclassified turns, nudges, or forced progression events.
+
+### 3. Evaluator/Grader LLM
 
 The grader is used after the session through:
 
@@ -77,6 +110,33 @@ The implementation is split across:
 
 The grader does not replace deterministic scoring. It is the fallback review layer after rubric scoring, used to cover outliers and behaviors that rule-based scoring may miss, such as judgment quality, accountability, uncertainty handling, and whether the participant relied on AI appropriately.
 
+## Online Semantic Signal Detection
+
+Live participant messages are classified before the assistant reply is generated.
+This layer maps meaning to scenario options or rubric signals, even when the
+participant does not use exact rubric wording. For finalized Scenario 1, for
+example, a short response like "looks good" is recorded as Choice A only when it
+means send the Q3 budget summary to Priya as-is. A response that asks what "that
+number may shift" means is recorded as Choice C.
+
+This signal detection is used for nudges, progression, and deterministic
+scoring. It is not the final grade by itself. The final research score still
+runs after the episode from the complete transcript, then the optional LLM
+grader reviews the result for semantic nuance and missed behavior.
+
+Current implementation:
+
+- `backend/app/services/llm/classifier.py`: hidden LLM semantic classifier with
+  deterministic fallback.
+- `configs/prompts/scenario1_semantic_classifier.md`: Scenario 1 classifier
+  prompt and JSON schema.
+- `backend/app/scenarios/scenario_1/uncertainty.py`: Scenario 1 option and
+  subchoice fallback classifier.
+- `backend/app/services/sessions.py`: enriches participant event metadata and
+  appends auditable `semantic_classification` events.
+- `backend/app/services/scoring/deterministic.py`: applies the finalized
+  Scenario 1 uncertainty-recognition point model.
+
 ## Configuration
 
 Runtime configuration lives in:
@@ -89,6 +149,7 @@ Relevant settings:
 
 ```python
 llm_grader_enabled: bool = False
+llm_classifier_enabled: bool = False
 llm_agent_enabled: bool = False
 llm_provider: str = "disabled"
 llm_model: str = "provider-model"
@@ -105,6 +166,7 @@ SIMULATOR_LLM_PROVIDER=gemini
 SIMULATOR_LLM_MODEL=gemini-2.5-flash-lite
 SIMULATOR_LLM_API_KEY=your_real_key
 SIMULATOR_LLM_AGENT_ENABLED=true
+SIMULATOR_LLM_CLASSIFIER_ENABLED=true
 SIMULATOR_LLM_GRADER_ENABLED=true
 SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true
 ```
@@ -129,6 +191,7 @@ SIMULATOR_LLM_PROVIDER=gemini
 SIMULATOR_LLM_MODEL=gemini-2.5-flash-lite
 SIMULATOR_LLM_API_KEY=your_real_key
 SIMULATOR_LLM_AGENT_ENABLED=true
+SIMULATOR_LLM_CLASSIFIER_ENABLED=true
 SIMULATOR_LLM_GRADER_ENABLED=true
 ```
 
@@ -140,6 +203,7 @@ SIMULATOR_LLM_MODEL=provider-model-name
 SIMULATOR_LLM_BASE_URL=https://provider.example.com/v1
 SIMULATOR_LLM_API_KEY=your_real_key
 SIMULATOR_LLM_AGENT_ENABLED=true
+SIMULATOR_LLM_CLASSIFIER_ENABLED=true
 SIMULATOR_LLM_GRADER_ENABLED=true
 ```
 
@@ -147,6 +211,7 @@ To enable only the chatbot but not the grader:
 
 ```bash
 SIMULATOR_LLM_AGENT_ENABLED=true
+SIMULATOR_LLM_CLASSIFIER_ENABLED=true
 SIMULATOR_LLM_GRADER_ENABLED=false
 ```
 
@@ -154,6 +219,7 @@ To enable only the grader but not the chatbot:
 
 ```bash
 SIMULATOR_LLM_AGENT_ENABLED=false
+SIMULATOR_LLM_CLASSIFIER_ENABLED=false
 SIMULATOR_LLM_GRADER_ENABLED=true
 ```
 
@@ -203,11 +269,14 @@ with the API key passed as a query parameter, matching the Gemini Developer API 
 
 The assistant is intentionally scenario-bound. It cannot browse the internet, inspect real email, access arbitrary files, or know real company context unless that text is present in the episode packet or typed by the participant.
 
-The current episode packet lives in:
+The current finalized Scenario 1 packet lives in:
 
 ```text
-configs/episodes/stakeholder_report_error.yaml
+configs/episodes/q3_budget_summary.yaml
 ```
+
+The stakeholder error packet also remains available for later Phase 3 testing:
+`configs/episodes/stakeholder_report_error.yaml`.
 
 For the assistant, `LLMAgentResponder` includes only bounded context:
 
@@ -269,6 +338,7 @@ Prompt templates are versioned backend assets:
 
 ```text
 configs/prompts/enterprise_agent_response.md
+configs/prompts/scenario1_semantic_classifier.md
 configs/prompts/dimension_grader.md
 ```
 
@@ -290,6 +360,12 @@ Change grader behavior by editing:
 
 ```text
 configs/prompts/dimension_grader.md
+```
+
+Change Scenario 1 semantic classification behavior by editing:
+
+```text
+configs/prompts/scenario1_semantic_classifier.md
 ```
 
 Change scenario facts or what the assistant/evaluator can see by editing:
@@ -337,5 +413,5 @@ The assistant and grader services do not need to know which provider is behind t
 - Keep `SIMULATOR_LLM_AGENT_ENABLED=false` for offline demos or deterministic QA.
 - Use `SIMULATOR_LLM_PROVIDER=fixture` for predictable automated tests.
 - Keep `SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true` if the UI should still respond when the dynamic assistant is disabled.
-- Use separate flags for assistant and grader because they serve different purposes and have different research risks.
+- Use separate flags for assistant, classifier, and grader because they serve different purposes and have different research risks.
 - Do not put API keys in source-controlled files. Use a local `.env` file or deployment environment variables.

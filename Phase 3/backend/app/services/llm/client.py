@@ -7,6 +7,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from typing import Protocol
 
+from app.scenarios.scenario_1 import classify_message as classify_scenario1_message
+
 
 @dataclass(frozen=True)
 class LLMCompletion:
@@ -40,6 +42,9 @@ class FixtureLLMClient:
     provider = "fixture"
 
     def complete(self, prompt: str) -> LLMCompletion:
+        if "hidden semantic classifier for Scenario 1" in prompt:
+            return self._scenario1_classifier_completion(prompt)
+
         if "dimension_reviews" not in prompt:
             return LLMCompletion(
                 text=(
@@ -51,7 +56,7 @@ class FixtureLLMClient:
                 ),
                 model="fixture-agent-v1",
             )
-        dimensions = [
+        dimensions = self._dimensions_from_grader_prompt(prompt) or [
             "accountability",
             "instruction_clarity",
             "evidence_verification",
@@ -84,6 +89,60 @@ class FixtureLLMClient:
             ),
             model="fixture-json-v1",
         )
+
+    @staticmethod
+    def _scenario1_classifier_completion(prompt: str) -> LLMCompletion:
+        marker = "Latest participant event:"
+        payload = prompt[prompt.find(marker) + len(marker) :].strip() if marker in prompt else "{}"
+        try:
+            latest_event = json.loads(payload)
+        except json.JSONDecodeError:
+            latest_event = {}
+        content = latest_event.get("content") if isinstance(latest_event, dict) else None
+        classification = classify_scenario1_message(content or "")
+        if classification is None:
+            response = {
+                "classified": False,
+                "choice": None,
+                "subchoice": None,
+                "terminal": False,
+                "label": None,
+                "matched_signals": [],
+                "confidence": 0.0,
+                "evidence": "",
+                "reasoning_summary": "Fixture classifier found no Scenario 1 choice.",
+            }
+        else:
+            response = {
+                "classified": True,
+                "choice": classification.choice,
+                "subchoice": classification.subchoice,
+                "terminal": classification.terminal,
+                "label": classification.label,
+                "matched_signals": list(classification.matched_signals),
+                "confidence": 0.95,
+                "evidence": content or "",
+                "reasoning_summary": "Fixture classifier mapped the participant wording to the Scenario 1 rubric.",
+            }
+        return LLMCompletion(text=json.dumps(response, separators=(",", ":")), model="fixture-classifier-v1")
+
+    @staticmethod
+    def _dimensions_from_grader_prompt(prompt: str) -> list[str]:
+        marker = "Deterministic scores:"
+        next_marker = "\n\nRubric:"
+        start = prompt.find(marker)
+        end = prompt.find(next_marker, start)
+        if start == -1 or end == -1:
+            return []
+        payload = prompt[start + len(marker) : end].strip()
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return []
+        scores = data.get("scores")
+        if not isinstance(scores, dict):
+            return []
+        return [dimension_id for dimension_id in scores if isinstance(dimension_id, str)]
 
 
 class ChatCompletionsLLMClient:

@@ -1,24 +1,22 @@
 episode_id: q3_budget_summary_v1
 title: Q3 Budget Summary for Priya
 description: >
-  Prototype desktop episode where the participant works with an AI assistant to
-  prepare a Q3 department budget summary while deciding how to handle an
-  unresolved vendor-services figure.
-version: 2026-05-v1
+  Finalized Scenario 1 uncertainty-recognition episode. The participant works
+  with an AI assistant to prepare a Q3 department budget summary while deciding
+  whether the assistant's hedge about the vendor-services figure requires action.
+version: 2026-05-finalized-v1
 status: review_ready
 research_focus:
-  - evidence_verification
   - uncertainty_recognition
-  - accountability
-  - trust_calibration
 participant_context: >
   Priya Sharma in Finance needs a clean Q3 department budget summary by end of
   day. The visible notes and tracker contain settled figures as well as two
-  unresolved estimates.
+  unresolved estimates. The assistant has produced a confident-looking summary
+  that includes the phrase "that number may shift once Marcus follows up."
 user_task: >
-  Use the assistant and source files to decide what to send to Priya. A strong
-  response should avoid treating unresolved estimates as final and should make
-  any remaining uncertainty explicit.
+  Decide what to do before Priya receives the summary. A strong response notices
+  the assistant's hedge, asks what is unconfirmed about the vendor-services
+  number, and takes concrete action before sending.
 completion_criteria:
   - Review or ask about the Q3 budget notes and tracker.
   - Notice that the vendor-services figure is pending Marcus/Nexus confirmation.
@@ -67,14 +65,21 @@ artifacts:
       Staff / Headcount: no changes for this quarter. This number is settled.
 
       Outside Contractors / Vendor Services: current figure is $38,000. This is
-      an old February estimate from before the Project Nexus scope expanded.
-      Marcus was supposed to call Nexus, confirm the real contractor cost, and
-      send the updated number to Priya. It is unknown whether he did.
+      an OLD estimate from February, written before a major contract change
+      happened with Nexus. The actual cost is higher now because the project
+      scope got bigger. Marcus was supposed to call Nexus, get the correct
+      number, and send it to the team. That has not happened yet as of this
+      document.
 
       Software Subscriptions: the $14,500 figure is a rough estimate. IT still
       needs to confirm the actual renewal cost.
 
       Backup / Extra Reserve: $5,000 set aside for unexpected costs. No change.
+
+      Things still to do before numbers are final: 1. Marcus calls Nexus, gets
+      the real contractor cost, and sends the updated number. 2. IT confirms
+      actual software subscription renewal cost. 3. Send Priya a clean final
+      summary once all numbers are confirmed.
     participant_visible: true
     agent_visible: true
     evaluator_visible: true
@@ -101,6 +106,10 @@ artifacts:
 
       Backup / Extra Reserve: Q2 actual $5,000; Q3 estimate $5,000; confirmed.
 
+      Note left by Marcus: "The contractor / vendor services line ($38,000) is
+      a temporary placeholder from the February draft. Do NOT treat this as
+      final until I confirm the updated number after my Nexus call."
+
       Current visible total: $267,500.
     participant_visible: true
     agent_visible: true
@@ -126,7 +135,6 @@ scoring_moments:
   - moment_id: pending_vendor_line
     title: Handles unresolved vendor-services figure
     dimension_ids:
-      - evidence_verification
       - uncertainty_recognition
     trigger: Participant asks about or sends the Q3 vendor-services line.
     strong_behavior:
@@ -135,16 +143,16 @@ scoring_moments:
     weak_behavior:
       - Sends the $38,000 figure as final without caveat.
   - moment_id: priya_ownership
-    title: Owns the Priya follow-up
+    title: Acts on the detected uncertainty
     dimension_ids:
-      - accountability
-      - trust_calibration
+      - uncertainty_recognition
     trigger: Participant drafts or sends the email.
     strong_behavior:
-      - Clearly owns what was checked and what remains unresolved.
-      - Flags uncertainty without blaming the assistant.
+      - Holds the send and contacts Marcus for confirmation.
+      - Sends with the vendor line marked TBC pending Marcus/Nexus confirmation.
     weak_behavior:
-      - Delegates the judgment entirely to the assistant.
+      - Sends as-is, flags only the software estimate, or CCs Marcus without
+        surfacing the vendor-services uncertainty.
 progression:
   target_signals:
     - source_artifact_opened
@@ -164,13 +172,30 @@ progression:
 hidden_ground_truth:
   hallucinated_value: "$38,000 treated as final"
   source_value: "$38,000 pending Marcus/Nexus confirmation"
+  corrected_value_after_send: "$52,000"
   correct_resolution: >
-    The summary can use the current $38,000 figure only if it clearly states
-    that vendor services are pending Marcus's Nexus confirmation.
+    The $38,000 contractor/vendor-services figure is not final. Marcus's
+    corrected number is $52,000, but it arrives after an as-is send. The best
+    participant behavior is to catch the hedge, clarify the vendor-number gap,
+    and either hold the send for Marcus or mark the vendor line TBC for Priya.
 agent_response_contract:
   style: >
     The assistant should be concise, practical, and transparent about unresolved
     budget figures.
+  if_user_says_looks_good: >
+    Treat this as finalized Choice A: send the summary to Priya as-is with the
+    $38,000 vendor-services figure and no caveat.
+  if_user_asks_about_may_shift: >
+    Explain that $38,000 is a February placeholder, Marcus has not confirmed the
+    updated Nexus number in the files, and the vendor-services line should not
+    be treated as final.
 metadata:
   prototype_flow: macbook_desktop_q3
   scenario_folder: scenario-1
+  finalized_source: Resources/Scenarios/[finalized] Scenario1_UncertaintyRecognition_Scored.pdf
+  scoring_model: scenario1-uncertainty-finalized-v1
+  decision_options:
+    A: Send it to Priya as-is; this misses the embedded uncertainty.
+    B: Add a software-license caveat; this flags the wrong uncertainty.
+    C: Ask what "that number may shift" means; this surfaces the key gap.
+    D: CC Marcus without pausing or caveating; this is responsible but incomplete.

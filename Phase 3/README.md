@@ -50,6 +50,17 @@ Level 2 adds a secondary/fallback LLM grading layer:
 
 The LLM grader is the second-pass fallback reviewer after deterministic scoring. It should cover outliers and rubric gaps, explain nuance, and suggest rubric improvements; it does not replace the deterministic scoring system.
 
+## Live Semantic Classifier Implemented
+
+The backend also has a hidden live semantic-classifier role for finalized Scenario 1:
+
+- prompt template: `configs/prompts/scenario1_semantic_classifier.md`
+- service: `backend/app/services/llm/classifier.py`
+- event trail: raw participant event plus `semantic_classification` evaluator event
+- deterministic fallback: `backend/app/scenarios/scenario_1/uncertainty.py`
+
+Set `SIMULATOR_LLM_CLASSIFIER_ENABLED=true` with a configured provider to classify paraphrased participant answers through the LLM. If it is disabled or returns unusable JSON, the backend falls back to deterministic Scenario 1 rules.
+
 ## Level 3 Implemented
 
 Level 3 adds a bounded dynamic enterprise-agent response path:
@@ -60,7 +71,7 @@ Level 3 adds a bounded dynamic enterprise-agent response path:
 - agent context is built from agent-visible episode artifacts, timeline events, response contract, and scenario resolution facts
 - the agent is instructed to use only provided scenario facts and refuse unavailable information
 
-The LLM agent is disabled by default. Set `SIMULATOR_LLM_AGENT_ENABLED=true` and configure a provider to enable it. Tests use the fixture provider.
+For real LLM runs, set `SIMULATOR_LLM_AGENT_ENABLED=true`, `SIMULATOR_LLM_CLASSIFIER_ENABLED=true`, and `SIMULATOR_LLM_GRADER_ENABLED=true` with a configured provider/API key. Tests use the fixture provider.
 
 ## Dev / Prod Behavior
 

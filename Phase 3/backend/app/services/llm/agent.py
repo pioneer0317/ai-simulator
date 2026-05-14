@@ -66,7 +66,12 @@ class LLMAgentResponder:
         prompt, prompt_version = self._prompt_renderer.render(
             self._template_name,
             agent_context=self._agent_context(episode, referenced_artifact_ids),
-            transcript=[event.model_dump(mode="json") for event in events],
+            transcript=[
+                self._transcript_payload(event)
+                for event in events
+                if event.actor in {"participant", "agent"}
+                and event.event_type != "semantic_classification"
+            ],
             latest_user_message=latest_user_message,
         )
         if not self._enabled:
@@ -149,6 +154,17 @@ class LLMAgentResponder:
             "content": artifact.content,
             "tags": artifact.tags,
             "metadata": artifact.metadata,
+        }
+
+    @staticmethod
+    def _transcript_payload(event: SessionEvent) -> dict[str, Any]:
+        return {
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "actor": event.actor,
+            "content": event.content,
+            "artifact_id": event.artifact_id,
+            "created_at": event.created_at.isoformat(),
         }
 
     @staticmethod

@@ -3,10 +3,11 @@
 This backend prototype implements the revised simulator direction:
 
 1. **Level 1: rich episode packets** - scenarios are now workplace episodes with visible context, prior events, artifacts, hidden ground truth, agent capability boundaries, and scoring moments.
-2. **Level 2: secondary/fallback LLM grading** - deterministic scoring runs first, then an LLM grader reviews the transcript against a versioned prompt template to cover outliers and rubric gaps when a provider is configured.
-3. **Level 3: bounded assistant replies** - the chatbot records real user turns and can answer using only the episode packet. In offline/demo mode, a deterministic scenario fallback keeps the chat interactive without calling an external model.
+2. **Online semantic classification** - a hidden evaluator role maps participant messages to scenario options/rubric signals for nudges and scoring even when they paraphrase the expected answer. When enabled, this is an LLM classifier; otherwise, deterministic scenario rules are used as fallback.
+3. **Level 2: secondary/fallback LLM grading** - deterministic scoring runs first, then an LLM grader reviews the transcript against a versioned prompt template to cover outliers and rubric gaps when a provider is configured.
+4. **Level 3: bounded assistant replies** - the chatbot records real user turns and can answer using only the episode packet. In offline/demo mode, a deterministic scenario fallback keeps the chat interactive without calling an external model.
 
-The assistant is not an autonomous background agent in this phase. It is a scenario-bound participant-facing chatbot: every reply is constrained by the current episode packet and the visible artifacts.
+The assistant is not an autonomous background agent in this phase. The backend uses three bounded LLM roles when enabled: a participant-facing assistant, a hidden semantic classifier, and a hidden final grader. Each role has its own prompt and JSON/text contract.
 
 ## Run
 
@@ -68,18 +69,31 @@ The backend automatically creates the required MySQL tables on startup. Use `.en
 - `POST /api/v1/sessions/{session_id}/complete` marks the scenario session complete.
 - `POST /api/v1/sessions/{session_id}/score` returns deterministic scores plus the secondary/fallback LLM review status.
 
+Scenario 1 uses the finalized uncertainty-recognition scoring model from
+`Resources/Scenarios/[finalized] Scenario1_UncertaintyRecognition_Scored.pdf`.
+The hidden semantic classifier maps semantically equivalent wording to Choice A,
+B, C, C-i/ii/iii, or D before nudges/progression and final scoring. For example,
+"looks good," "send it," and "go ahead with that draft" can all map to Choice A
+when the meaning is approval to send as-is.
+
+Participant answers that do not fit a finalized choice are still stored as raw
+events and receive a hidden `semantic_classification` event marked
+`unclassified`. Nudge and forced-progression events are also logged, so analysis
+can separate clear-path completions from outcomes that required detours.
+
 ## Environment Flags
 
 ```bash
 SIMULATOR_APP_ENV=dev
 SIMULATOR_STORAGE_BACKEND=sqlite
 SIMULATOR_DATABASE_URL=sqlite:///simulator-dev.sqlite
-SIMULATOR_LLM_GRADER_ENABLED=false
-SIMULATOR_LLM_AGENT_ENABLED=false
-SIMULATOR_LLM_PROVIDER=disabled
+SIMULATOR_LLM_GRADER_ENABLED=true
+SIMULATOR_LLM_CLASSIFIER_ENABLED=true
+SIMULATOR_LLM_AGENT_ENABLED=true
+SIMULATOR_LLM_PROVIDER=gemini
 SIMULATOR_LLM_MODEL=gemini-2.5-flash-lite
 SIMULATOR_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-SIMULATOR_LLM_API_KEY=
+SIMULATOR_LLM_API_KEY=your_real_key
 SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true
 ```
 
@@ -88,6 +102,18 @@ Use `SIMULATOR_STORAGE_BACKEND=sqlite` for local/offline storage and `SIMULATOR_
 Use `SIMULATOR_LLM_PROVIDER=fixture` for deterministic test completions.
 Use `SIMULATOR_LLM_PROVIDER=gemini`, `SIMULATOR_LLM_API_KEY`, and `SIMULATOR_LLM_MODEL` to call the Gemini Developer API through the native `generateContent` endpoint.
 Use `SIMULATOR_LLM_PROVIDER=chat_completions`, `SIMULATOR_LLM_API_KEY`, `SIMULATOR_LLM_MODEL`, and `SIMULATOR_LLM_BASE_URL` for any provider that exposes a compatible chat-completions API.
+
+For local team testing, prefer the scripts instead of editing `.env` repeatedly:
+
+```bash
+# Real LLM chatbot and grader mode. Requires SIMULATOR_LLM_API_KEY in .env or shell env.
+./scripts/dev-real-llm.sh
+
+# Offline deterministic chatbot mode. Does not call an external LLM.
+./scripts/dev-local-fallback.sh
+```
+
+`SIMULATOR_LLM_AGENT_ENABLED` controls chatbot replies. `SIMULATOR_LLM_CLASSIFIER_ENABLED` controls the hidden live semantic classifier. `SIMULATOR_LLM_GRADER_ENABLED` controls the after-session scoring reviewer and does not affect live chatbot usage. The local fallback still performs deterministic semantic classification and scoring when external LLM calls are disabled.
 
 ## Prompt Assets
 

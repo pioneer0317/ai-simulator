@@ -23,6 +23,7 @@ Episode packet
   -> visible artifacts
   -> hidden evaluator ground truth
   -> participant messages/actions/artifact opens
+  -> hidden online semantic classifier for nudges/progression
   -> optional bounded LLM agent response
   -> deterministic scoring
   -> secondary/fallback LLM grading review
@@ -44,6 +45,9 @@ Level 1 and Level 2 work at the same time as the existing scenario definitions. 
 ```text
 Episode packet remains source of truth
         |
+        +-- hidden semantic classifier maps paraphrased participant answers
+        |   to scenario options/rubric signals for live nudges
+        |
         +-- deterministic scoring uses structured events and rubric signals
         |
         +-- secondary/fallback LLM grader reviews transcript and hidden ground truth
@@ -54,10 +58,27 @@ Episode packet remains source of truth
 The safest MVP sequence is:
 
 1. Build rich packets and artifact/event logging.
-2. Add deterministic scoring.
-3. Add secondary/fallback LLM grading.
-4. Add LLM-generated agent replies inside the episode contract.
-5. Later, add true multi-agent orchestration for episodes that need it.
+2. Add online semantic classification so paraphrases such as "looks good"
+   can map to the correct scenario option by meaning before scoring.
+3. Add deterministic scoring.
+4. Add secondary/fallback LLM grading.
+5. Add LLM-generated agent replies inside the episode contract.
+6. Later, add true multi-agent orchestration for episodes that need it.
+
+The operational rule is: score continuously internally, grade finally
+externally. Each participant event can be classified for live progression and
+nudging, but the research grade is generated after the episode from the full
+event transcript. This keeps the UI responsive without letting one early message
+over-determine the final score.
+
+The Phase 3 backend now has three bounded LLM roles:
+
+1. Participant-facing assistant: visible chatbot, no rubric exposure.
+2. Hidden semantic classifier: live JSON evaluator for scenario choices/signals.
+3. Hidden final grader: post-session rubric reviewer over the full transcript.
+
+These are separate services and prompt contracts over the same provider client,
+not a single all-purpose agent.
 
 ## Does Embedded Agent Mean True Multi-Agent Backend?
 

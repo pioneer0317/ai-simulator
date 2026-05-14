@@ -15,6 +15,7 @@ from app.services.llm.client import (
     FixtureLLMClient,
     GeminiLLMClient,
 )
+from app.services.llm.classifier import LLMSemanticClassifier
 from app.services.llm.fallback import ScenarioFallbackAgentResponder
 from app.services.llm.grader import LLMGrader
 from app.services.llm.prompts import PromptTemplateRenderer
@@ -40,7 +41,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    llm_requested = settings.llm_grader_enabled or settings.llm_agent_enabled
+    llm_requested = (
+        settings.llm_grader_enabled
+        or settings.llm_classifier_enabled
+        or settings.llm_agent_enabled
+    )
     if not llm_requested:
         llm_client = DisabledLLMClient()
     elif settings.llm_provider == "fixture":
@@ -75,6 +80,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         episode_loader=EpisodeLoader(settings.episode_config_dir),
         episode_engine=EpisodeEngine(),
         scorer=DeterministicScorer(settings.scoring_rubric_path),
+        semantic_classifier=LLMSemanticClassifier(
+            enabled=settings.llm_classifier_enabled,
+            client=llm_client,
+            prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
+            provider_name=settings.llm_provider,
+        ),
         llm_grader=LLMGrader(
             enabled=settings.llm_grader_enabled,
             client=llm_client,

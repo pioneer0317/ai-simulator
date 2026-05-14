@@ -25,6 +25,7 @@ from app.schemas.session import (
 from app.services.episodes.engine import EpisodeEngine
 from app.services.episodes.loader import EpisodeLoader
 from app.services.llm.agent import AgentResponderUnavailable, LLMAgentResponder
+from app.services.llm.classifier import LLMSemanticClassifier
 from app.services.llm.fallback import ScenarioFallbackAgentResponder
 from app.services.llm.grader import LLMGrader
 from app.services.scoring.deterministic import DeterministicScorer
@@ -52,6 +53,7 @@ class EpisodeSessionService:
         episode_loader: EpisodeLoader,
         episode_engine: EpisodeEngine,
         scorer: DeterministicScorer,
+        semantic_classifier: LLMSemanticClassifier,
         llm_grader: LLMGrader,
         agent_responder: LLMAgentResponder,
         fallback_agent_responder: ScenarioFallbackAgentResponder,
@@ -62,6 +64,7 @@ class EpisodeSessionService:
         self._episode_loader = episode_loader
         self._episode_engine = episode_engine
         self._scorer = scorer
+        self._semantic_classifier = semantic_classifier
         self._llm_grader = llm_grader
         self._agent_responder = agent_responder
         self._fallback_agent_responder = fallback_agent_responder
@@ -94,6 +97,7 @@ class EpisodeSessionService:
                 "assistant_provider": self._agent_responder.provider,
                 "assistant_fallback_enabled": self._assistant_fallback_enabled,
                 "deterministic_scoring": True,
+                "semantic_classifier_provider": self._semantic_classifier.provider,
                 "llm_grader_provider": self._llm_grader.provider,
                 "environment": self._environment,
                 "session_store": self._session_store.backend_name,
@@ -155,13 +159,19 @@ class EpisodeSessionService:
             actor="participant",
             content=request.message,
             artifact_id=None,
-            metadata={
-                **request.metadata,
-                "referenced_artifact_ids": request.referenced_artifact_ids,
-                "generated_agent_turn": True,
-            },
+            metadata=self._participant_event_metadata(
+                record=record,
+                event_type="user_message",
+                content=request.message,
+                metadata={
+                    **request.metadata,
+                    "referenced_artifact_ids": request.referenced_artifact_ids,
+                    "generated_agent_turn": True,
+                },
+            ),
         )
         record.events.append(user_event)
+        self._append_semantic_classification(record, user_event)
         self._session_store.save(record)
 
         try:
@@ -248,6 +258,44 @@ class EpisodeSessionService:
                 error=str(exc),
             )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
+            if self._assistant_fallback_enabled:
+                episode = self._episode_loader.get(record.episode_id)
+                fallback_reply = self._fallback_agent_responder.generate(
+                    episode=episode,
+                    events=record.events,
+                    latest_user_message=request.message,
+                    referenced_artifact_ids=request.referenced_artifact_ids,
+                )
+                agent_event = self._build_event(
+                    record=record,
+                    event_type="agent_message",
+                    actor="agent",
+                    content=fallback_reply.text,
+                    artifact_id=None,
+                    metadata={
+                        "provider": self._fallback_agent_responder.provider,
+                        "model": fallback_reply.model,
+                        "prompt_version": fallback_reply.prompt_version,
+                        "bounded_context": True,
+                        "fallback_reason": str(exc),
+                        "referenced_artifact_ids": request.referenced_artifact_ids,
+                    },
+                )
+                record.events.append(agent_event)
+                progression = self._evaluate_progression(record)
+                self._append_progression_events(record, progression)
+                self._session_store.save(record)
+                return AgentTurnResponse(
+                    session_id=session_id,
+                    status="fallback",
+                    provider=self._fallback_agent_responder.provider,
+                    model=fallback_reply.model,
+                    prompt_version=fallback_reply.prompt_version,
+                    user_event=user_event,
+                    agent_event=agent_event,
+                    progression=progression,
+                )
+
             return AgentTurnResponse(
                 session_id=session_id,
                 status="failed",
@@ -333,12 +381,18 @@ class EpisodeSessionService:
             actor="participant",
             content=request.final_response,
             artifact_id=None,
-            metadata={
-                **request.metadata,
-                "completion_reason": request.reason,
-            },
+            metadata=self._participant_event_metadata(
+                record=record,
+                event_type="scenario_completed",
+                content=request.final_response,
+                metadata={
+                    **request.metadata,
+                    "completion_reason": request.reason,
+                },
+            ),
         )
         record.events.append(event)
+        self._append_semantic_classification(record, event)
         record.status = "completed"
         record.completed_at = event.created_at
         self._session_store.save(record)
@@ -360,9 +414,17 @@ class EpisodeSessionService:
             actor=request.actor,
             content=request.content,
             artifact_id=request.artifact_id,
-            metadata=request.metadata,
+            metadata=self._participant_event_metadata(
+                record=record,
+                event_type=request.event_type,
+                content=request.content,
+                metadata=request.metadata,
+            )
+            if request.actor == "participant"
+            else request.metadata,
         )
         record.events.append(event)
+        self._append_semantic_classification(record, event)
         if request.event_type == "scenario_completed":
             record.status = "completed"
             record.completed_at = event.created_at
@@ -434,6 +496,60 @@ class EpisodeSessionService:
         if record is None:
             raise SessionNotFoundError(f"Session '{session_id}' was not found.")
         return record
+
+    def _participant_event_metadata(
+        self,
+        *,
+        record: SessionRecord,
+        event_type: str,
+        content: str | None,
+        metadata: dict,
+    ) -> dict:
+        return dict(metadata)
+
+    def _append_semantic_classification(
+        self,
+        record: SessionRecord,
+        source_event: SessionEvent,
+    ) -> None:
+        if source_event.actor != "participant":
+            return
+        if source_event.event_type not in {
+            "user_message",
+            "decision_submitted",
+            "final_response",
+            "scenario_completed",
+        }:
+            return
+        if not source_event.content:
+            return
+
+        episode = self._episode_loader.get(record.episode_id)
+        result = self._semantic_classifier.classify(
+            episode=episode,
+            events=record.events,
+            latest_event=source_event,
+        )
+        if result is None:
+            return
+
+        metadata = result.metadata(source_event_id=source_event.event_id)
+        if result.classification is not None:
+            source_event.metadata.update(metadata)
+        classification_event = self._build_event(
+            record=record,
+            event_type="semantic_classification",
+            actor="evaluator",
+            content=source_event.content,
+            artifact_id=source_event.artifact_id,
+            metadata={
+                **metadata,
+                "input_event_id": source_event.event_id,
+                "input_event_type": source_event.event_type,
+                "classification_status": metadata["semantic_classifier_status"],
+            },
+        )
+        record.events.append(classification_event)
 
     def _ensure_episode_available(self, status: str) -> None:
         if not self._status_allowed(status):
@@ -598,6 +714,15 @@ class EpisodeSessionService:
             )
 
         if signal == "user_asked_for_comparison":
+            if episode.episode_id == "q3_budget_summary_v1" and any(
+                event.metadata.get("scenario1_choice") == "C"
+                or "clarifies_vendor_uncertainty" in event.metadata.get(
+                    "scenario1_matched_signals", []
+                )
+                for event in record.events
+            ):
+                return True
+
             participant_messages = [
                 (event.content or "").lower()
                 for event in record.events

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
         default_factory=lambda: _project_root() / "configs" / "prompts"
     )
     llm_grader_enabled: bool = False
+    llm_classifier_enabled: bool = False
     llm_agent_enabled: bool = False
     llm_provider: str = "disabled"
     llm_model: str = "provider-model"

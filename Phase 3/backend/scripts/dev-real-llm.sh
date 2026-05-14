@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export SIMULATOR_LLM_AGENT_ENABLED=true
+export SIMULATOR_LLM_CLASSIFIER_ENABLED="${SIMULATOR_LLM_CLASSIFIER_ENABLED:-true}"
+export SIMULATOR_LLM_GRADER_ENABLED="${SIMULATOR_LLM_GRADER_ENABLED:-true}"
+export SIMULATOR_LLM_PROVIDER="${SIMULATOR_LLM_PROVIDER:-gemini}"
+export SIMULATOR_LLM_MODEL="${SIMULATOR_LLM_MODEL:-gemini-2.5-flash-lite}"
+export SIMULATOR_LLM_BASE_URL="${SIMULATOR_LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}"
+export SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true
+
+exec .venv/bin/uvicorn app.main:app --reload --port "${PORT:-8000}"

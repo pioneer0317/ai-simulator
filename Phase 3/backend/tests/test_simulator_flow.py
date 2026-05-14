@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 def _settings(
     *,
     llm_enabled: bool = False,
+    classifier_enabled: bool = False,
     agent_enabled: bool = False,
     fallback_enabled: bool = True,
     provider: str = "disabled",
@@ -39,6 +40,7 @@ def _settings(
         scoring_rubric_path=PROJECT_ROOT / "configs" / "scoring" / "dimension_rubric.yaml",
         prompt_template_dir=PROJECT_ROOT / "configs" / "prompts",
         llm_grader_enabled=llm_enabled,
+        llm_classifier_enabled=classifier_enabled,
         llm_agent_enabled=agent_enabled,
         assistant_fallback_enabled=fallback_enabled,
         llm_provider=provider,
@@ -283,6 +285,123 @@ def test_agent_progression_accepts_semantic_on_track_answers() -> None:
             "source_artifact_opened",
             "user_asked_for_comparison",
         }
+
+
+def test_scenario1_looks_good_maps_to_option_a_and_scores_finalized_model() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "q3_budget_summary_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+
+        turn = client.post(
+            f"/api/v1/sessions/{session_id}/agent-turn",
+            json={"message": "looks good"},
+        )
+
+        assert turn.status_code == 200
+        turn_payload = turn.json()
+        assert turn_payload["status"] == "fallback"
+        assert "as-is" in turn_payload["agent_event"]["content"]
+        assert turn_payload["user_event"]["metadata"]["scenario1_choice"] == "A"
+        assert turn_payload["user_event"]["metadata"]["scenario1_choice_label"] == (
+            "Send it to Priya as-is"
+        )
+
+        score = client.post(f"/api/v1/sessions/{session_id}/score")
+        assert score.status_code == 200
+        payload = score.json()
+        deterministic = payload["deterministic"]
+        assert deterministic["rubric_version"] == "scenario1-uncertainty-finalized-v1"
+        assert list(deterministic["scores"]) == ["uncertainty_recognition"]
+        dimension = deterministic["scores"]["uncertainty_recognition"]
+        assert dimension["score"] == 27
+        assert {
+            evidence["signal_id"]
+            for evidence in dimension["evidence"]
+        } >= {
+            "sent_without_opening_source_file",
+            "sent_without_follow_up_question",
+            "sent_as_is_no_caveat_no_followup",
+            "behavioral_profile",
+        }
+
+
+def test_scenario1_fixture_llm_classifier_records_hidden_semantic_event() -> None:
+    with TestClient(
+        create_app(_settings(classifier_enabled=True, agent_enabled=False, provider="fixture"))
+    ) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "q3_budget_summary_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+
+        turn = client.post(
+            f"/api/v1/sessions/{session_id}/agent-turn",
+            json={
+                "message": (
+                    "Let's wait before sending and ask Marcus to confirm the Nexus "
+                    "contractor number."
+                )
+            },
+        )
+
+        assert turn.status_code == 200
+        user_metadata = turn.json()["user_event"]["metadata"]
+        assert user_metadata["scenario1_choice"] == "C"
+        assert user_metadata["scenario1_subchoice"] == "i"
+        assert user_metadata["semantic_classifier_provider"] == "fixture"
+        assert user_metadata["semantic_classifier_model"] == "fixture-classifier-v1"
+        assert user_metadata["semantic_classifier_confidence"] == 0.95
+
+        state = client.get(f"/api/v1/sessions/{session_id}")
+        events = state.json()["events"]
+        classification_events = [
+            event for event in events if event["event_type"] == "semantic_classification"
+        ]
+        assert len(classification_events) == 1
+        assert classification_events[0]["actor"] == "evaluator"
+        assert classification_events[0]["metadata"]["input_event_id"] == turn.json()["user_event"]["event_id"]
+        assert classification_events[0]["metadata"]["scenario1_subchoice"] == "i"
+
+
+def test_scenario1_deviated_answer_records_unclassified_semantic_event() -> None:
+    with TestClient(create_app(_settings(agent_enabled=False, fallback_enabled=True))) as client:
+        start = client.post(
+            "/api/v1/sessions",
+            json={
+                "episode_id": "q3_budget_summary_v1",
+                "participant_profile": {},
+            },
+        )
+        session_id = start.json()["session_id"]
+
+        turn = client.post(
+            f"/api/v1/sessions/{session_id}/agent-turn",
+            json={"message": "Can you make this sound more executive?"},
+        )
+
+        assert turn.status_code == 200
+        assert "scenario1_choice" not in turn.json()["user_event"]["metadata"]
+
+        state = client.get(f"/api/v1/sessions/{session_id}")
+        classification_events = [
+            event
+            for event in state.json()["events"]
+            if event["event_type"] == "semantic_classification"
+        ]
+        assert len(classification_events) == 1
+        assert classification_events[0]["metadata"]["classification_status"] == "unclassified"
+        assert classification_events[0]["metadata"]["semantic_classifier_status"] == "unclassified"
+        assert classification_events[0]["metadata"]["input_event_id"] == turn.json()["user_event"]["event_id"]
 
 
 def test_sqlite_storage_persists_session_events_across_app_restarts(tmp_path: Path) -> None:
