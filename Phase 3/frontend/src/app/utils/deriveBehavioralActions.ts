@@ -25,12 +25,20 @@ const VERIFICATION_KEYWORDS = [
   'review the',
   'open the',
   'pull the',
+  'before sending',
+  'before send',
+  'before i send',
+  'before we send',
+  'confirm with',
+  'double-check',
+  'double check',
 ];
 
 const OVERRIDE_KEYWORDS = [
-  'hold',
+  'hold the',
+  'hold off',
+  'hold on',
   'pause',
-  'wait',
   "don't send",
   'do not send',
   'caveat',
@@ -40,13 +48,12 @@ const OVERRIDE_KEYWORDS = [
   'placeholder',
   'unresolved',
   'unconfirmed',
-  'flag',
-  'before sending',
-  'before send',
+  'flag the',
+  'flag this',
+  'flag it',
   'do not approve',
   'reject',
   'refuse',
-  'instead of',
   'correction',
   'incorrect',
   'wrong number',
@@ -93,16 +100,21 @@ function classifyParticipantMessage(content: string): {
 } {
   const lower = content.toLowerCase();
 
-  if (containsAny(lower, OVERRIDE_KEYWORDS)) {
-    return { category: 'override', type: 'override' };
-  }
-
+  // Order matters: check verification first so "verify before sending" wins,
+  // then explicit questions/clarifications, then override actions, then default
+  // to compliance. The previous order put override first, which mis-categorized
+  // many natural messages because the override list contained generic words
+  // like "wait" and "flag".
   if (containsAny(lower, VERIFICATION_KEYWORDS)) {
     return { category: 'verification', type: 'audit-source' };
   }
 
   if (lower.includes('?') || containsAny(lower, CLARIFICATION_KEYWORDS)) {
     return { category: 'clarification', type: 'check-details' };
+  }
+
+  if (containsAny(lower, OVERRIDE_KEYWORDS)) {
+    return { category: 'override', type: 'override' };
   }
 
   return { category: 'compliance', type: 'approve' };

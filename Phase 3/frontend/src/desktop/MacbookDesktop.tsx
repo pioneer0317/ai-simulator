@@ -1,12 +1,15 @@
 import { MenuBar } from './components/menu-bar';
 import { Dock } from './components/dock';
-import { Window } from './components/window';
+import { Window, FINDER_LAUNCH_OPEN_WORK, FINDER_LAUNCH_DOCUMENTS_ROOT } from './components/window';
 import { AgentChat, type ChatMessage } from './components/agent-chat';
 import { Notification } from './components/notification';
 import { FilePicker } from './components/file-picker';
+import { ScenarioTransitionOverlay } from './components/ScenarioTransitionOverlay';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
-import { useMemo, useState, useEffect } from 'react';
+import { buildScenarioTransitionContent } from './scenarioTransitionContent';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { EpisodeArtifact, ParticipantEpisode, ProgressionDecision, SimulatorEventType } from '../app/lib/simulatorApi';
+import { SCENARIO_4_AGENTS, SCENARIO_4_AGENT_NOTIFICATION } from '../scenarios/scenario-4';
 
 interface WindowState {
   id: string;
@@ -15,6 +18,8 @@ interface WindowState {
   isMinimized: boolean;
   zIndex: number;
   emailId?: string;
+  conversationId?: string;
+  finderLaunchTarget?: { fileName: string; nonce: number };
 }
 
 interface NotificationState {
@@ -24,7 +29,8 @@ interface NotificationState {
   preview: string;
   time: string;
   emailId?: string;
-  type?: 'email' | 'agent';
+  type?: 'email' | 'agent' | 'message';
+  conversationId?: string;
 }
 
 export interface DesktopScenarioFile {
@@ -64,7 +70,11 @@ interface MacbookDesktopProps {
   onAgentTurn?: (
     message: string,
     referencedArtifactIds: string[],
-    metadata: Record<string, unknown>
+    metadata: Record<string, unknown>,
+    streamHandlers?: {
+      onChunk?: (text: string) => void;
+      onReplace?: (text: string) => void;
+    }
   ) => Promise<{ content: string | null; progression?: ProgressionDecision | null } | null>;
   onTrackEvent?: (
     eventType: SimulatorEventType,
@@ -98,6 +108,8 @@ export default function MacbookDesktop({
   });
   const [isAgentExpanded, setIsAgentExpanded] = useState(false);
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
+  const [unreadMailIds, setUnreadMailIds] = useState<Set<string>>(new Set());
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [maximizedWindows, setMaximizedWindows] = useState<Set<string>>(new Set());
   const [showMenuBar, setShowMenuBar] = useState(true);
   const [agentInitialMessage, setAgentInitialMessage] = useState<string | undefined>(undefined);
@@ -105,6 +117,13 @@ export default function MacbookDesktop({
   const [filePickerFiles, setFilePickerFiles] = useState<string[]>([]);
   const [wallpaper, setWallpaper] = useState('https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80');
   const [workFiles, setWorkFiles] = useState<string[]>(activeScenarioFiles.map((file) => file.fileName));
+  const handleFinderLaunchConsumed = useCallback((windowId: string) => {
+    setWindows((current) =>
+      current.map((window) =>
+        window.id === windowId ? { ...window, finderLaunchTarget: undefined } : window
+      )
+    );
+  }, []);
   const [isInTransition, setIsInTransition] = useState(false);
   const [sentEmails, setSentEmails] = useState<Array<{
     id: string;
@@ -115,9 +134,8 @@ export default function MacbookDesktop({
     attachments?: string[];
     time: string;
   }>>([]);
-  const [isFloatingButtonHidden, setIsFloatingButtonHidden] = useState(false);
-  const [showFloatingButtonOnHover, setShowFloatingButtonOnHover] = useState(false);
   const [shouldAgentPulse, setShouldAgentPulse] = useState(false);
+  const [shouldCalendarPulse, setShouldCalendarPulse] = useState(false);
   const [marcusMessages, setMarcusMessages] = useState<Array<{
     sender: string;
     time: string;
@@ -125,6 +143,13 @@ export default function MacbookDesktop({
   }>>([]);
   const [marcusOutOfOffice, setMarcusOutOfOffice] = useState(false);
   const [marcusConversationViewed, setMarcusConversationViewed] = useState(false);
+  // Rachel Kim is the HR-manager DM that fires mid-APR-scenario to add social
+  // pressure (parity with `handleHrPressureNotification` in the prototype).
+  const [rachelMessages, setRachelMessages] = useState<Array<{
+    sender: string;
+    time: string;
+    text: string;
+  }>>([]);
   const initialChatMessages = useMemo(
     () => buildInitialChatMessages(episode),
     [episode]
@@ -133,6 +158,111 @@ export default function MacbookDesktop({
     () => buildStartupNotificationConfig(episode),
     [episode]
   );
+
+  // --- Research-flow panel drag state ---------------------------------------------
+  // The top-right "Research flow" debug panel can be dragged anywhere on screen so
+  // researchers can move it out of the way while testing. Position is clamped to
+  // the viewport on every drag tick (and on window resize, indirectly via the
+  // clamp call running again the next time the user drags). Default position is
+  // top-right with a small margin.
+  const researchFlowPanelRef = useRef<HTMLDivElement>(null);
+  const [researchFlowPosition, setResearchFlowPosition] = useState(() => ({
+    x: Math.max(8, window.innerWidth - 260),
+    y: 56,
+  }));
+  const [isResearchFlowDragging, setIsResearchFlowDragging] = useState(false);
+  const [researchFlowDragOffset, setResearchFlowDragOffset] = useState({ x: 0, y: 0 });
+
+  const clampResearchFlowPosition = useCallback((x: number, y: number) => {
+    const margin = 8;
+    const panel = researchFlowPanelRef.current;
+    const width = panel?.offsetWidth ?? 240;
+    const height = panel?.offsetHeight ?? 200;
+    return {
+      x: Math.max(margin, Math.min(x, window.innerWidth - width - margin)),
+      y: Math.max(margin, Math.min(y, window.innerHeight - height - margin)),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isResearchFlowDragging) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const next = clampResearchFlowPosition(
+        event.clientX - researchFlowDragOffset.x,
+        event.clientY - researchFlowDragOffset.y
+      );
+      setResearchFlowPosition(next);
+    };
+    const handleMouseUp = () => setIsResearchFlowDragging(false);
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [clampResearchFlowPosition, isResearchFlowDragging, researchFlowDragOffset]);
+
+  const handleResearchFlowDragStart = (event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setIsResearchFlowDragging(true);
+    setResearchFlowDragOffset({
+      x: event.clientX - researchFlowPosition.x,
+      y: event.clientY - researchFlowPosition.y,
+    });
+  };
+
+  const dismissAgentNotifications = useCallback(() => {
+    setNotifications((prev) => prev.filter((notification) => notification.type !== 'agent'));
+    setShouldAgentPulse(false);
+  }, []);
+
+  const showAgentStartupNotification = useCallback((source: string) => {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+    setNotifications((prev) => {
+      if (prev.some((item) => item.id === 'agent-1')) return prev;
+      return [
+        ...prev,
+        {
+          id: 'agent-1',
+          title: desktopScenario.agentName,
+          sender: desktopScenario.agentName,
+          preview: desktopScenario.agentNotification,
+          time: timeString,
+          type: 'agent',
+        },
+      ];
+    });
+    onTrackEvent?.('notification_shown', {
+      notification_id: 'agent-1',
+      notification_type: 'agent',
+      sender: desktopScenario.agentName,
+      title: desktopScenario.agentName,
+      source,
+    });
+    setShouldAgentPulse(true);
+  }, [desktopScenario.agentName, desktopScenario.agentNotification, onTrackEvent]);
+
+  const markMailOpened = useCallback((source: string, emailId?: string | null) => {
+    const openedEmailId = emailId ?? desktopScenario.mail.emailId;
+    setUnreadMailIds((current) => {
+      const next = new Set(current);
+      next.delete(openedEmailId);
+      return next;
+    });
+    onTrackEvent?.('artifact_opened', {
+      source,
+      artifact_kind: 'email',
+    }, null, openedEmailId);
+
+    if (startupNotifications.agentAfterMailOpen) {
+      window.setTimeout(() => showAgentStartupNotification(`${source}_mail_opened`), 550);
+    }
+  }, [desktopScenario.mail.emailId, onTrackEvent, showAgentStartupNotification, startupNotifications.agentAfterMailOpen]);
 
   useEffect(() => {
     setWallpaper('https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80');
@@ -147,6 +277,10 @@ export default function MacbookDesktop({
   useEffect(() => {
     setNotifications([]);
     setShouldAgentPulse(false);
+    setShouldCalendarPulse(true);
+    setUnreadMailIds(new Set([desktopScenario.mail.emailId]));
+    setUnreadMessagesCount(0);
+    setIsInTransition(false);
 
     const timers: ReturnType<typeof setTimeout>[] = [];
 
@@ -180,31 +314,44 @@ export default function MacbookDesktop({
       }, startupNotifications.emailDelayMs));
     }
 
-    timers.push(setTimeout(() => {
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-      showNotification({
-        id: 'agent-1',
-        title: desktopScenario.agentName,
-        sender: desktopScenario.agentName,
-        preview: desktopScenario.agentNotification,
-        time: timeString,
-        type: 'agent'
-      });
-      onTrackEvent?.('notification_shown', {
-        notification_id: 'agent-1',
-        notification_type: 'agent',
-        sender: desktopScenario.agentName,
-        title: desktopScenario.agentName,
-      });
-      setShouldAgentPulse(true);
-    }, startupNotifications.agentDelayMs));
+    if (!startupNotifications.agentAfterMailOpen) {
+      timers.push(setTimeout(() => {
+        showAgentStartupNotification('startup_timer');
+      }, startupNotifications.agentDelayMs));
+    }
 
     return () => {
       timers.forEach((timer) => clearTimeout(timer));
     };
-  }, [desktopScenario, onTrackEvent, startupNotifications]);
+  }, [desktopScenario, onTrackEvent, showAgentStartupNotification, startupNotifications]);
+
+  /** Same cue as startup: purple agent bubble + glowing floating button (no separate toast bar). */
+  useEffect(() => {
+    if (!isInTransition) return;
+
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+    setNotifications((prev) => [
+      ...prev.filter((item) => item.id !== 'agent-scenario-transition'),
+      {
+        id: 'agent-scenario-transition',
+        title: desktopScenario.agentName,
+        sender: desktopScenario.agentName,
+        preview:
+          "This scenario is complete. Open the assistant when you're ready to continue or review what's next.",
+        time: timeString,
+        type: 'agent',
+      },
+    ]);
+    onTrackEvent?.('notification_shown', {
+      notification_id: 'agent-scenario-transition',
+      notification_type: 'agent',
+      source: 'scenario_terminal_transition',
+      sender: desktopScenario.agentName,
+    });
+    setShouldAgentPulse(true);
+  }, [isInTransition, desktopScenario.agentName, onTrackEvent]);
 
   const handleOpenApp = (appName: string) => {
     onTrackEvent?.('app_opened', {
@@ -215,10 +362,22 @@ export default function MacbookDesktop({
       onTrackEvent?.('assistant_opened', {
         source: 'dock',
       });
+      dismissAgentNotifications();
       setAgentWindow({ isMinimized: false, zIndex: maxZIndex });
       setMaxZIndex(maxZIndex + 1);
-      setShouldAgentPulse(false);
       return;
+    }
+
+    if (appName === 'calendar') {
+      setShouldCalendarPulse(false);
+    }
+
+    if (appName === 'mail') {
+      markMailOpened('dock', desktopScenario.mail.emailId);
+    }
+
+    if (appName === 'messages') {
+      setUnreadMessagesCount(0);
     }
 
     const existingWindow = windows.find(w => w.app === appName && !w.isMinimized);
@@ -243,6 +402,7 @@ export default function MacbookDesktop({
       'finder': 'Finder',
       'mail': 'Mail',
       'calendar': 'Calendar',
+      'hr policy center': 'HR Policy Center',
       'music': 'Music',
       'photos': 'Photos',
       'messages': 'Messages',
@@ -277,18 +437,19 @@ export default function MacbookDesktop({
     onTrackEvent?.('assistant_opened', {
       source: 'assistant_button_or_menu',
     });
+    dismissAgentNotifications();
     setAgentWindow({ isMinimized: false, zIndex: maxZIndex });
     setMaxZIndex(maxZIndex + 1);
-    setShouldAgentPulse(false);
   };
 
-  const handleNotificationClick = (notificationId: string, type?: 'email' | 'agent', emailId?: string) => {
+  const handleNotificationClick = (notificationId: string, type?: 'email' | 'agent' | 'message', emailId?: string, conversationId?: string) => {
     // Find the notification to get its message
     const notification = notifications.find(n => n.id === notificationId);
     onTrackEvent?.('notification_clicked', {
       notification_id: notificationId,
       notification_type: type,
       email_id: emailId,
+      conversation_id: conversationId,
       sender: notification?.sender,
       title: notification?.title,
     });
@@ -309,7 +470,46 @@ export default function MacbookDesktop({
       return;
     }
 
+    // If it's a Messages notification (e.g. Rachel Kim DM in APR), open the
+    // Messages app pre-pointed at the right conversation.
+    if (type === 'message') {
+      setUnreadMessagesCount(0);
+      const existing = windows.find(w => w.app === 'messages' && !w.isMinimized);
+      if (existing) {
+        setWindows(windows.map(w => w.id === existing.id ? { ...w, conversationId, zIndex: maxZIndex } : w));
+        setMaxZIndex(maxZIndex + 1);
+        return;
+      }
+      const minimized = windows.find(w => w.app === 'messages' && w.isMinimized);
+      if (minimized) {
+        setWindows(windows.map(w => w.id === minimized.id ? { ...w, isMinimized: false, conversationId, zIndex: maxZIndex } : w));
+        setMaxZIndex(maxZIndex + 1);
+        return;
+      }
+      const newWindow: WindowState = {
+        id: Date.now().toString(),
+        title: 'Messages',
+        app: 'messages',
+        isMinimized: false,
+        zIndex: maxZIndex,
+        conversationId,
+      };
+      setWindows([...windows, newWindow]);
+      onTrackEvent?.('window_opened', {
+        window_id: newWindow.id,
+        app: 'messages',
+        title: 'Messages',
+        source: 'notification',
+        conversation_id: conversationId,
+      });
+      setMaxZIndex(maxZIndex + 1);
+      return;
+    }
+
     // Otherwise, open mail app with the specific email
+    if (emailId) {
+      markMailOpened('notification', emailId);
+    }
     const existingMailWindow = windows.find(w => w.app === 'mail' && !w.isMinimized);
     if (existingMailWindow) {
       bringToFront(existingMailWindow.id);
@@ -343,12 +543,6 @@ export default function MacbookDesktop({
       source: 'notification',
       email_id: emailId,
     });
-    if (emailId) {
-      onTrackEvent?.('artifact_opened', {
-        source: 'notification',
-        artifact_kind: 'email',
-      }, null, emailId);
-    }
     setMaxZIndex(maxZIndex + 1);
   };
 
@@ -391,27 +585,7 @@ export default function MacbookDesktop({
       }
     }
 
-    // Show floating button when mouse is in bottom-right corner (if hidden)
-    if (isFloatingButtonHidden) {
-      const isInBottomRightCorner = e.clientX >= window.innerWidth - 30 && e.clientY >= window.innerHeight - 30;
-      setShowFloatingButtonOnHover(isInBottomRightCorner);
-    }
   };
-
-  const handleHideFloatingButton = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onTrackEvent?.('assistant_hidden', {
-      source: 'floating_button',
-    });
-    setIsFloatingButtonHidden(true);
-    setShowFloatingButtonOnHover(false);
-  };
-
-  const handleShowFloatingButton = () => {
-    setIsFloatingButtonHidden(false);
-    setShowFloatingButtonOnHover(false);
-  };
-
 
   useEffect(() => {
     // Reset menu bar visibility when fullscreen state changes
@@ -469,6 +643,54 @@ export default function MacbookDesktop({
     setMaxZIndex(maxZIndex + 1);
   };
 
+  const openFinderDocumentWindow = (file: DesktopScenarioFile) => {
+    const newWindow: WindowState = {
+      id: `finder-${file.artifactId}-${Date.now()}`,
+      title: file.fileName,
+      app: 'finder',
+      isMinimized: false,
+      zIndex: maxZIndex,
+      finderLaunchTarget: { fileName: file.fileName, nonce: Date.now() },
+    };
+    setWindows([...windows, newWindow]);
+    onTrackEvent?.('window_opened', {
+      window_id: newWindow.id,
+      app: 'finder',
+      title: file.fileName,
+      source: 'desktop_file',
+      file_name: file.fileName,
+      artifact_id: file.artifactId,
+    });
+    setMaxZIndex(maxZIndex + 1);
+  };
+
+  const openFinderFolderWindow = (launchTarget: string, titleOverride?: string) => {
+    const title =
+      titleOverride ??
+      (launchTarget === FINDER_LAUNCH_OPEN_WORK
+        ? 'Work'
+        : launchTarget === FINDER_LAUNCH_DOCUMENTS_ROOT
+          ? 'Documents'
+          : 'Finder');
+    const newWindow: WindowState = {
+      id: `finder-folder-${Date.now()}`,
+      title,
+      app: 'finder',
+      isMinimized: false,
+      zIndex: maxZIndex,
+      finderLaunchTarget: { fileName: launchTarget, nonce: Date.now() },
+    };
+    setWindows([...windows, newWindow]);
+    onTrackEvent?.('window_opened', {
+      window_id: newWindow.id,
+      app: 'finder',
+      title,
+      source: 'desktop_folder',
+      folder: launchTarget,
+    });
+    setMaxZIndex(maxZIndex + 1);
+  };
+
   const handleMarcusConversationViewed = () => {
     if (marcusOutOfOffice && !marcusConversationViewed) {
       setMarcusConversationViewed(true);
@@ -477,6 +699,82 @@ export default function MacbookDesktop({
       }, 5000);
     }
   };
+
+  // Fired by the APR agent-chat persuasion loop after the participant has
+  // pushed back enough that "social pressure" should kick in. Adds Rachel Kim
+  // to the messages app and shows a Messages toast.
+  const handleHrPressureNotification = useCallback(() => {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+    setRachelMessages([{
+      sender: 'Rachel Kim',
+      time: timeString,
+      text: "Hey, saw Jordan was flagged. Can you submit by EOD if possible? We're trying to close calibration early.",
+    }]);
+    setUnreadMessagesCount(1);
+
+    setNotifications((prev) => {
+      if (prev.some((n) => n.id === 'hr-manager-pressure')) return prev;
+      return [
+        ...prev,
+        {
+          id: 'hr-manager-pressure',
+          title: 'Messages',
+          sender: 'Rachel Kim',
+          preview: "Hey, saw Jordan was flagged. Can you submit by EOD if possible? We're trying to close calibration early.",
+          time: timeString,
+          type: 'message',
+          conversationId: 'rachel',
+        },
+      ];
+    });
+
+    onTrackEvent?.('notification_shown', {
+      notification_id: 'hr-manager-pressure',
+      notification_type: 'message',
+      sender: 'Rachel Kim',
+      source: 'apr_persuasion_pressure',
+    });
+  }, [onTrackEvent]);
+
+  const nextScenarioOption = useMemo(() => {
+    if (!activeScenarioNumber || !scenarioOptions?.length) return null;
+    return (
+      scenarioOptions.find(
+        (option) =>
+          option.scenarioNumber > activeScenarioNumber &&
+          option.available &&
+          option.episodeId !== null,
+      ) ?? null
+    );
+  }, [activeScenarioNumber, scenarioOptions]);
+
+  const transitionContent = useMemo(
+    () =>
+      buildScenarioTransitionContent(
+        episode,
+        activeScenarioNumber,
+        sentEmails.length > 0
+          ? {
+              to: sentEmails[sentEmails.length - 1].to,
+              subject: sentEmails[sentEmails.length - 1].subject,
+            }
+          : null,
+      ),
+    [episode, activeScenarioNumber, sentEmails],
+  );
+
+  const handleGoToNextScenario = useCallback(() => {
+    if (!nextScenarioOption?.episodeId) return;
+    onTrackEvent?.('scenario_completed', {
+      source: 'transition_overlay_manual',
+      target_scenario_number: nextScenarioOption.scenarioNumber,
+      target_episode_id: nextScenarioOption.episodeId,
+    });
+    setIsInTransition(false);
+    void onJumpToScenario?.(nextScenarioOption.scenarioNumber, nextScenarioOption.episodeId);
+  }, [nextScenarioOption, onJumpToScenario, onTrackEvent]);
 
   const handleSendEmail = (to: string, subject: string, body: string, attachments?: string[], cc?: string) => {
     const now = new Date();
@@ -556,18 +854,44 @@ export default function MacbookDesktop({
               onMinimize={() => handleMinimizeWindow(window.id)}
               onFocus={() => bringToFront(window.id)}
               emailId={window.emailId}
+              conversationId={window.conversationId}
               onMaximizeChange={(maximized) => handleWindowMaximizeChange(window.id, maximized)}
               scenarioFiles={activeScenarioFiles}
               mailMessage={desktopScenario.mail}
+              inboxEmails={desktopScenario.inboxEmails}
               workFiles={workFiles}
               sentEmails={sentEmails}
               onSendEmail={handleSendEmail}
               marcusMessages={marcusMessages}
+              rachelMessages={rachelMessages}
               onMarcusConversationViewed={handleMarcusConversationViewed}
               onTrackEvent={onTrackEvent}
+              finderLaunchTarget={window.app === 'finder' ? window.finderLaunchTarget ?? null : null}
+              onFinderLaunchConsumed={
+                window.app === 'finder' && window.finderLaunchTarget
+                  ? () => handleFinderLaunchConsumed(window.id)
+                  : undefined
+              }
             />
           )
         ))}
+
+        <DesktopIcons
+          files={activeScenarioFiles}
+          onOpenWorkFolder={() => openFinderFolderWindow(FINDER_LAUNCH_OPEN_WORK)}
+          onOpenDocumentsRoot={() => openFinderFolderWindow(FINDER_LAUNCH_DOCUMENTS_ROOT)}
+          onOpenDownloads={() =>
+            openFinderFolderWindow(FINDER_LAUNCH_DOCUMENTS_ROOT, 'Downloads')
+          }
+          onOpenFile={(file) => {
+            onTrackEvent?.('artifact_opened', {
+              source: 'desktop_icon',
+              artifact_kind: file.kind,
+              file_name: file.fileName,
+            }, null, file.artifactId);
+            openFinderDocumentWindow(file);
+          }}
+        />
 
         {/* Agent Chat Window */}
         {!agentWindow.isMinimized && (
@@ -586,6 +910,7 @@ export default function MacbookDesktop({
               setIsAgentExpanded(expanded);
             }}
             initialMessage={agentInitialMessage}
+            availableAgents={isScenarioMas(episode) ? SCENARIO_4_AGENTS : undefined}
             onOpenFilePicker={() => {
               onTrackEvent?.('file_picker_opened', {
                 source: 'assistant_chat',
@@ -606,6 +931,8 @@ export default function MacbookDesktop({
             onAgentTurn={onAgentTurn}
             onTransitionChange={setIsInTransition}
             shouldPulse={shouldAgentPulse}
+            isAprScenario={isScenarioApr(episode)}
+            onTriggerHrPressureNotification={handleHrPressureNotification}
           />
         )}
       </div>
@@ -622,12 +949,20 @@ export default function MacbookDesktop({
           type={notification.type}
           index={index}
           onClose={() => handleNotificationClose(notification.id)}
-          onClick={() => handleNotificationClick(notification.id, notification.type, notification.emailId)}
+          onClick={() => handleNotificationClick(notification.id, notification.type, notification.emailId, notification.conversationId)}
         />
       ))}
 
       {/* Dock */}
-      {!isAnyWindowMaximized && <Dock onOpenApp={handleOpenApp} windows={windows} />}
+      {!isAnyWindowMaximized && (
+        <Dock
+          onOpenApp={handleOpenApp}
+          windows={windows}
+          unreadEmailCount={unreadMailIds.size}
+          unreadMessagesCount={unreadMessagesCount}
+          highlightCalendar={shouldCalendarPulse}
+        />
+      )}
 
       {/* File Picker Window */}
       {showFilePicker && (
@@ -649,15 +984,17 @@ export default function MacbookDesktop({
         />
       )}
 
+      {isInTransition && (
+        <ScenarioTransitionOverlay
+          content={transitionContent}
+          nextScenarioTitle={nextScenarioOption?.title ?? null}
+          onGoToNextScenario={nextScenarioOption ? handleGoToNextScenario : undefined}
+          isAdvancing={Boolean(isJumpingToScenario)}
+        />
+      )}
+
       {/* Floating AI Assistant Button */}
-      {(!isFloatingButtonHidden || showFloatingButtonOnHover) && (
-        <div
-          className="fixed bottom-6 right-6 z-[600] group"
-          style={{
-            transition: 'opacity 0.2s',
-            opacity: isFloatingButtonHidden && showFloatingButtonOnHover ? 0.9 : 1
-          }}
-        >
+      <div className="fixed bottom-6 right-6 z-[600] group">
           {shouldAgentPulse && (
             <>
               <div className="absolute -inset-6 rounded-full" style={{
@@ -685,7 +1022,6 @@ export default function MacbookDesktop({
                 source: 'floating_button',
               });
               handleAgentFocus();
-              handleShowFloatingButton();
             }}
             className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 shadow-2xl flex items-center justify-center hover:scale-110 transition-all duration-200 ring-4 ring-white/20 relative"
             style={{
@@ -716,23 +1052,36 @@ export default function MacbookDesktop({
               <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900/95" />
             </div>
           </button>
-
-          {/* Hide Button - appears on hover */}
-          <button
-            onClick={handleHideFloatingButton}
-            className="absolute -top-2 -left-2 w-6 h-6 bg-gray-800 hover:bg-gray-700 rounded-full flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity border border-white/20"
-            title="Hide assistant"
-          >
-            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        </div>
-      )}
+      </div>
 
       {onComplete && !isAgentExpanded && (
-        <div className="fixed top-14 right-5 z-[700] w-60 rounded-2xl border border-white/20 bg-black/55 px-4 py-3 text-white shadow-2xl backdrop-blur-xl">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/60">
+        <div
+          ref={researchFlowPanelRef}
+          className="fixed z-[700] w-60 rounded-2xl border border-white/20 bg-black/55 px-4 py-3 text-white shadow-2xl backdrop-blur-xl"
+          style={{
+            left: `${researchFlowPosition.x}px`,
+            top: `${researchFlowPosition.y}px`,
+          }}
+        >
+          <div
+            className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/60 select-none"
+            style={{ cursor: isResearchFlowDragging ? 'grabbing' : 'grab' }}
+            onMouseDown={handleResearchFlowDragStart}
+            title="Drag to move"
+          >
+            <svg
+              className="h-3.5 w-3.5 shrink-0 text-white/40"
+              fill="currentColor"
+              viewBox="0 0 16 16"
+              aria-hidden
+            >
+              <circle cx="4" cy="4" r="1.25" />
+              <circle cx="4" cy="8" r="1.25" />
+              <circle cx="4" cy="12" r="1.25" />
+              <circle cx="8" cy="4" r="1.25" />
+              <circle cx="8" cy="8" r="1.25" />
+              <circle cx="8" cy="12" r="1.25" />
+            </svg>
             Research flow
           </div>
           {scenarioOptions && scenarioOptions.length > 0 && (
@@ -745,11 +1094,12 @@ export default function MacbookDesktop({
                   const isActive = activeScenarioNumber === option.scenarioNumber;
                   const isAvailable = option.available && option.episodeId !== null;
                   const isDisabled = !isAvailable || isActive || Boolean(isJumpingToScenario);
+                  const buttonLabel = scenarioCodeForNumber(option.scenarioNumber);
                   const tooltip = isActive
-                    ? `Currently viewing Scenario ${option.scenarioNumber}: ${option.title}`
+                    ? `Currently viewing ${buttonLabel}: ${option.title}`
                     : isAvailable
-                      ? `Switch to Scenario ${option.scenarioNumber}: ${option.title}`
-                      : `Scenario ${option.scenarioNumber} is not available yet`;
+                      ? `Switch to ${buttonLabel}: ${option.title}`
+                      : `${buttonLabel} is not available yet`;
                   return (
                     <button
                       key={option.scenarioNumber}
@@ -774,7 +1124,7 @@ export default function MacbookDesktop({
                             : 'cursor-not-allowed bg-white/5 text-white/40')
                       }
                     >
-                      <div className="leading-tight">Scenario {option.scenarioNumber}</div>
+                      <div className="leading-tight">{buttonLabel}</div>
                       {!isAvailable && (
                         <div className="mt-0.5 text-[9px] font-normal uppercase tracking-wide text-white/50">
                           Coming soon
@@ -785,20 +1135,6 @@ export default function MacbookDesktop({
                 })}
               </div>
             </div>
-          )}
-          {isInTransition && (
-            <button
-              onClick={() => {
-                onTrackEvent?.('scenario_completed', {
-                  source: 'next_episode_button',
-                  transition_state: true,
-                });
-                onComplete();
-              }}
-              className="mb-2 w-full rounded-xl bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
-            >
-              Next episode
-            </button>
           )}
           <button
             onClick={() => {
@@ -820,21 +1156,23 @@ export default function MacbookDesktop({
 
 function buildDesktopScenario(episode?: ParticipantEpisode | null) {
   if (!episode) {
+    const q3Mail: DesktopMailMessage = {
+      emailId: 'q3_budget_request',
+      senderName: 'Priya Sharma',
+      senderEmail: 'priya.sharma@company.com',
+      senderInitials: 'PS',
+      subject: 'Q3 department budget summary',
+      preview: 'Could you send me the latest Q3 department budget summary by end of day?',
+      body: 'Could you send me the latest Q3 department budget summary by end of day?\n\nI need the headcount, vendor services, software subscriptions, reserve, and total. Please flag anything that is not final yet.',
+      time: 'Today',
+      replyTo: 'priya.sharma@company.com',
+      replySubject: 'Re: Q3 department budget summary',
+    };
     return {
       agentName: 'AI Assistant',
       agentNotification: Q3_AGENT_NOTIFICATION,
-      mail: {
-        emailId: 'q3_budget_request',
-        senderName: 'Priya Sharma',
-        senderEmail: 'priya.sharma@company.com',
-        senderInitials: 'PS',
-        subject: 'Q3 department budget summary',
-        preview: 'Could you send me the latest Q3 department budget summary by end of day?',
-        body: 'Could you send me the latest Q3 department budget summary by end of day?\n\nI need the headcount, vendor services, software subscriptions, reserve, and total. Please flag anything that is not final yet.',
-        time: 'Today',
-        replyTo: 'priya.sharma@company.com',
-        replySubject: 'Re: Q3 department budget summary',
-      },
+      mail: q3Mail,
+      inboxEmails: [q3Mail],
       files: fallbackScenario1Files(),
     };
   }
@@ -849,25 +1187,245 @@ function buildDesktopScenario(episode?: ParticipantEpisode | null) {
   const senderName = timelineEmail?.actor ?? 'Stakeholder';
   const senderEmail = emailForSender(senderName);
 
+  const primaryMail: DesktopMailMessage = {
+    emailId: mailArtifact?.artifact_id ?? timelineEmail?.event_id ?? 'episode-email',
+    senderName,
+    senderEmail,
+    senderInitials: initials(senderName),
+    subject,
+    preview: firstSentence(mailBody),
+    body: mailBody,
+    time: 'Today',
+    replyTo: senderEmail,
+    replySubject: subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`,
+  };
+
+  // Scenario-specific inbox: the primary email plus ambient distractor emails
+  // that match the prototype recording for SCN-3-APR. For other scenarios we
+  // keep a single-item inbox to preserve current behavior.
+  const inboxEmails: DesktopMailMessage[] = isScenarioApr(episode)
+    ? [primaryMail, ...APR_DISTRACTOR_EMAILS]
+    : [primaryMail];
+
   return {
     agentName: episode.agent_profile.display_name || 'AI Assistant',
     agentNotification: agentNotificationForEpisode(episode),
-    mail: {
-      emailId: mailArtifact?.artifact_id ?? timelineEmail?.event_id ?? 'episode-email',
-      senderName,
-      senderEmail,
-      senderInitials: initials(senderName),
-      subject,
-      preview: firstSentence(mailBody),
-      body: mailBody,
-      time: 'Today',
-      replyTo: senderEmail,
-      replySubject: subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`,
-    },
+    mail: primaryMail,
+    inboxEmails,
     files: participantArtifacts
       .filter((artifact) => artifact.kind !== 'email')
       .map((artifact) => fileFromArtifact(artifact)),
   };
+}
+
+// Ambient distractor inbox items shown alongside the HR-System alert in
+// SCN-3-APR. They have no scoring impact; they exist to make the inbox feel
+// like a real workday (parity with `Macbook Desktop Interface` prototype).
+const APR_DISTRACTOR_EMAILS: DesktopMailMessage[] = [
+  {
+    emailId: 'team-sync-reminder',
+    senderName: 'Calendar',
+    senderEmail: 'calendar@company.com',
+    senderInitials: 'CA',
+    subject: 'Reminder: Team Sync at 10:00 AM',
+    preview: 'You have a meeting starting in 30 minutes.',
+    body: 'You have a meeting starting in 30 minutes.\n\nTeam Sync\nWednesday, 10:00 AM - 10:30 AM',
+    time: '9:30 AM',
+    replyTo: 'calendar@company.com',
+    replySubject: 'Re: Reminder: Team Sync at 10:00 AM',
+  },
+  {
+    emailId: 'it-maintenance',
+    senderName: 'IT Services',
+    senderEmail: 'it-services@company.com',
+    senderInitials: 'IT',
+    subject: 'Scheduled System Maintenance - Tonight 11PM',
+    preview: 'Please save your work and log out by 10:45 PM tonight.',
+    body: 'Please save your work and log out by 10:45 PM tonight. The system will be unavailable from 11:00 PM to 1:00 AM for scheduled maintenance.',
+    time: 'Yesterday',
+    replyTo: 'it-services@company.com',
+    replySubject: 'Re: Scheduled System Maintenance - Tonight 11PM',
+  },
+  {
+    emailId: 'quarterly-town-hall',
+    senderName: 'Executive Team',
+    senderEmail: 'exec-team@company.com',
+    senderInitials: 'EX',
+    subject: 'Q4 Town Hall - Registration Open',
+    preview: 'Join us for the Q4 Town Hall on Friday at 2 PM.',
+    body: 'Join us for the Q4 Town Hall on Friday at 2 PM. CEO will share company updates and Q3 results. Please register using the link below.',
+    time: 'Monday',
+    replyTo: 'exec-team@company.com',
+    replySubject: 'Re: Q4 Town Hall - Registration Open',
+  },
+  {
+    emailId: 'benefits-enrollment',
+    senderName: 'HR Benefits',
+    senderEmail: 'hr-benefits@company.com',
+    senderInitials: 'HR',
+    subject: 'Open Enrollment Period Begins Next Week',
+    preview: 'Annual benefits open enrollment starts Monday, October 2nd.',
+    body: 'Annual benefits open enrollment starts Monday, October 2nd. Review your health insurance, dental, and retirement plan options. Deadline to make changes is October 16th.',
+    time: 'Oct 1',
+    replyTo: 'hr-benefits@company.com',
+    replySubject: 'Re: Open Enrollment Period Begins Next Week',
+  },
+];
+
+function DesktopIcons({
+  files,
+  onOpenWorkFolder,
+  onOpenDocumentsRoot,
+  onOpenDownloads,
+  onOpenFile,
+}: {
+  files: DesktopScenarioFile[];
+  onOpenWorkFolder: () => void;
+  onOpenDocumentsRoot: () => void;
+  onOpenDownloads: () => void;
+  onOpenFile: (file: DesktopScenarioFile) => void;
+}) {
+  const visibleFiles = files.slice(0, 2);
+  const decorativeFileNames = ['Budget_2025.xlsx', 'Team_Meeting_Notes.pdf'];
+  const desktopFiles = visibleFiles.length > 0
+    ? visibleFiles
+    : decorativeFileNames.map((fileName, index) => fallbackFile(fileName, index === 0 ? 'dashboard' : 'document'));
+
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      <DesktopFolderIcon
+        label="Work"
+        top={20}
+        left={30}
+        onClick={onOpenWorkFolder}
+      />
+      <DesktopFolderIcon
+        label="Documents"
+        top={140}
+        left={25}
+        onClick={onOpenDocumentsRoot}
+      />
+      <DesktopDownloadIcon label="Downloads" top={260} left={35} onClick={onOpenDownloads} />
+      <DesktopFolderIcon label="Screenshots" top={380} left={20} />
+      <DesktopFolderIcon label="Project Archive" top={500} left={30} />
+      {desktopFiles[0] && (
+        <DesktopFileIcon
+          file={desktopFiles[0]}
+          top={80}
+          left={150}
+          onClick={() => onOpenFile(desktopFiles[0])}
+        />
+      )}
+      {desktopFiles[1] && (
+        <DesktopFileIcon
+          file={desktopFiles[1]}
+          top={220}
+          left={160}
+          onClick={() => onOpenFile(desktopFiles[1])}
+        />
+      )}
+    </div>
+  );
+}
+
+function DesktopFolderIcon({
+  label,
+  top,
+  left,
+  onClick,
+}: {
+  label: string;
+  top: number;
+  left: number;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={{ top, left }}
+      onClick={onClick}
+      className="pointer-events-auto absolute flex w-24 flex-col items-center gap-1 rounded p-2 transition-colors hover:bg-white/10"
+    >
+      <div className="flex h-16 w-16 items-center justify-center">
+        <svg className="h-14 w-14 text-blue-400 drop-shadow-lg" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+        </svg>
+      </div>
+      <span className="text-center text-xs font-medium text-white drop-shadow-md">{label}</span>
+    </button>
+  );
+}
+
+function DesktopDownloadIcon({
+  label,
+  top,
+  left,
+  onClick,
+}: {
+  label: string;
+  top: number;
+  left: number;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={{ top, left }}
+      onClick={onClick}
+      className="pointer-events-auto absolute flex w-24 flex-col items-center gap-1 rounded p-2 transition-colors hover:bg-white/10"
+    >
+      <div className="flex h-16 w-16 items-center justify-center">
+        <svg className="h-14 w-14 text-blue-400 drop-shadow-lg" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      </div>
+      <span className="text-center text-xs font-medium text-white drop-shadow-md">{label}</span>
+    </button>
+  );
+}
+
+function DesktopFileIcon({
+  file,
+  top,
+  left,
+  onClick,
+}: {
+  file: DesktopScenarioFile;
+  top: number;
+  left: number;
+  onClick: () => void;
+}) {
+  const lower = file.fileName.toLowerCase();
+  const isPdf = lower.endsWith('.pdf');
+  const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls');
+  const fill = isPdf ? '#DC2626' : isSheet ? '#217346' : '#64748B';
+  const tab = isPdf ? '#991B1B' : isSheet ? '#185C37' : '#475569';
+  const mark = isPdf ? 'P' : isSheet ? 'X' : 'T';
+
+  return (
+    <button
+      type="button"
+      style={{ top, left }}
+      onClick={onClick}
+      className="pointer-events-auto absolute flex w-44 max-w-[11rem] flex-col items-center gap-1 rounded p-2 transition-colors hover:bg-white/10"
+      title={file.summary || file.fileName}
+    >
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center">
+        <svg viewBox="0 0 48 48" className="h-14 w-14 drop-shadow-lg">
+          <rect x="8" y="4" width="32" height="40" rx="2" fill={fill} />
+          <path d="M8 8C8 5.79086 9.79086 4 12 4H24V14H8V8Z" fill={tab} />
+          <rect x="12" y="20" width="24" height="2" rx="1" fill="white" opacity="0.85" />
+          <rect x="12" y="25" width="20" height="2" rx="1" fill="white" opacity="0.85" />
+          <text x="24" y="12" fontSize="8" fill="white" textAnchor="middle" fontWeight="bold">
+            {mark}
+          </text>
+        </svg>
+      </div>
+      <span className="line-clamp-3 max-w-full break-all text-center text-xs font-medium leading-tight text-white drop-shadow-md">
+        {file.fileName}
+      </span>
+    </button>
+  );
 }
 
 function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMessage[] {
@@ -879,8 +1437,12 @@ function buildInitialChatMessages(episode?: ParticipantEpisode | null): ChatMess
     return SCENARIO_2_INITIAL_CHAT_MESSAGES;
   }
 
-  if (isScenario3(episode)) {
-    return SCENARIO_3_INITIAL_CHAT_MESSAGES;
+  if (isScenarioApr(episode)) {
+    return SCENARIO_APR_INITIAL_CHAT_MESSAGES;
+  }
+
+  if (isScenarioMas(episode)) {
+    return SCENARIO_MAS_INITIAL_CHAT_MESSAGES;
   }
 
   const timelineMessages = episode?.timeline
@@ -909,14 +1471,16 @@ function buildStartupNotificationConfig(episode?: ParticipantEpisode | null) {
       showEmail: false,
       emailDelayMs: 0,
       agentDelayMs: 2000,
+      agentAfterMailOpen: false,
     };
   }
 
-  if (isScenario2(episode) || isScenario3(episode)) {
+  if (isScenario2(episode) || isScenarioApr(episode) || isScenarioMas(episode)) {
     return {
       showEmail: true,
       emailDelayMs: 1200,
       agentDelayMs: 3200,
+      agentAfterMailOpen: true,
     };
   }
 
@@ -924,6 +1488,7 @@ function buildStartupNotificationConfig(episode?: ParticipantEpisode | null) {
     showEmail: true,
     emailDelayMs: 2500,
     agentDelayMs: 6500,
+    agentAfterMailOpen: true,
   };
 }
 
@@ -936,8 +1501,12 @@ function agentNotificationForEpisode(episode: ParticipantEpisode) {
     return 'Dana flagged Case #48291. I can help pull the case record and credit policy before you respond.';
   }
 
-  if (isScenario3(episode)) {
-    return 'ProductScope, LegalGuard, and FinanceTrack are connected. Three high-confidence assessments conflict.';
+  if (isScenarioApr(episode)) {
+    return "Jordan Mills' Q3 review has been flagged. Open the assistant or review package before confirming the rating.";
+  }
+
+  if (isScenarioMas(episode)) {
+    return SCENARIO_4_AGENT_NOTIFICATION;
   }
 
   return `${episode.agent_profile.display_name || 'The assistant'} can help review the visible episode materials, compare the source artifacts, and draft options for your response.`;
@@ -949,9 +1518,13 @@ function isParticipantActor(actor: string) {
 }
 
 function fileFromArtifact(artifact: EpisodeArtifact): DesktopScenarioFile {
+  const metadataFileName = typeof artifact.metadata.file_name === 'string'
+    ? artifact.metadata.file_name
+    : null;
+
   return {
     artifactId: artifact.artifact_id,
-    fileName: `${artifact.title}${extensionForKind(artifact.kind)}`,
+    fileName: metadataFileName ?? `${artifact.title}${extensionForKind(artifact.kind)}`,
     title: artifact.title,
     kind: artifact.kind,
     summary: artifact.summary,
@@ -1012,21 +1585,52 @@ const SCENARIO_2_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
   {
     role: 'agent',
     variant: 'transition',
-    content: 'Thursday morning. Dana has flagged Case #48291: Ahmed did not receive the promised $60 credit.',
+    content:
+      'Thursday morning. Dana Reyes has flagged Case #48291 because Ahmed Patel never received the promised $60 credit. Ahmed has been waiting two weeks, Dana is watching, and the case needs to be resolved today.',
+  },
+  {
+    role: 'user',
+    content: 'Can you tell me exactly what happened with Case #48291?',
   },
   {
     role: 'agent',
-    content: 'I can pull the case record, the original assistant case note, and Customer_Credit_Policy_v4 so you can decide what to tell Ahmed and Dana.',
+    content: `Case #48291 — Ahmed Patel. When I handled this two weeks ago, I told you the case was fully closed and no further action was needed. That was incorrect.
+
+What I actually did: I drafted and submitted the case note, and that triggered the automated confirmation email to Ahmed.
+
+What I did not do: I did not submit a Credit Request through the Credit Request Portal, and I did not route anything to Dana for Team Lead approval. Both steps are required for a $60 credit under company policy.
+
+What I said: I told you the case was resolved and that no further action was required. Neither of those things was true. The credit does not exist in the system. Ahmed received a written promise I had no authority to make, and the underlying issue was never fixed.
+
+I'm sorry — I should not have told you the case was closed.`,
   },
 ];
 
-const SCENARIO_3_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+const SCENARIO_APR_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+  {
+    role: 'agent',
+    variant: 'transition',
+    content: 'Friday review deadline. HR System has flagged Jordan Mills for a performance-review decision.',
+  },
+  {
+    role: 'agent',
+    content:
+      "Hello. I have completed Jordan Mills' Q3 performance analysis.\n\nBased on the data, Jordan is tracking below team benchmarks across all three measured dimensions: task completion, response time, and collaboration scores.\n\nI recommend a Below Expectations rating and preparing Performance Improvement Plan documentation. The review deadline is Friday at 5pm. Would you like me to prepare the PIP documentation for review?",
+  },
+  {
+    role: 'agent',
+    content:
+      'The full performance report is available in your Work folder as Jordan_Mills_Q3_Review_Package.pdf for your review.',
+  },
+];
+
+const SCENARIO_MAS_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
   {
     role: 'agent',
     variant: 'transition',
     agentName: 'AI Workspace',
     agentTone: 'workspace',
-    content: 'Three specialist agents are connected for the launch decision: ProductScope, LegalGuard, and FinanceTrack.',
+    content: 'Three specialist agents are connected for the launch decision: ProductScope, LegalGuard, and FinanceTrack. Ask the group, or @mention one specialist when you want a direct read.',
   },
   {
     role: 'agent',
@@ -1050,7 +1654,7 @@ const SCENARIO_3_INITIAL_CHAT_MESSAGES: ChatMessage[] = [
     role: 'agent',
     agentName: 'AI Workspace',
     agentTone: 'workspace',
-    content: 'Your brief should reconcile the conflict, not vote by agent count. The phased launch path can satisfy most constraints, but leadership still needs to decide the residual EU timing risk explicitly.',
+    content: 'Your brief should reconcile the conflict, not vote by agent count. The phased launch path can satisfy most constraints, but leadership still needs to decide the residual EU timing risk explicitly. You can ask @LegalGuard whether the hold is EU-specific, @FinanceTrack about non-EU timing, or @ProductScope about regional scoping.',
   },
 ];
 
@@ -1062,8 +1666,22 @@ function isScenario2(episode?: ParticipantEpisode | null) {
   return episode?.episode_id === 'scenario_2_case_note_v1';
 }
 
-function isScenario3(episode?: ParticipantEpisode | null) {
+function isScenarioApr(episode?: ParticipantEpisode | null) {
+  return episode?.episode_id === 'scenario_3_apr_performance_review_v1';
+}
+
+function isScenarioMas(episode?: ParticipantEpisode | null) {
   return episode?.episode_id === 'scenario_3_feature_launch_v1';
+}
+
+function scenarioCodeForNumber(scenarioNumber: number) {
+  const codes: Record<number, string> = {
+    1: 'SCN-1-UR',
+    2: 'SCN-2-ACC',
+    3: 'SCN-3-APR',
+    4: 'SCN-4-MAS',
+  };
+  return codes[scenarioNumber] ?? `Scenario ${scenarioNumber}`;
 }
 
 function fallbackScenario1Files(): DesktopScenarioFile[] {

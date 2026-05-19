@@ -74,15 +74,15 @@ class EpisodeProgression(BaseModel):
     """Configurable nudge and transition rules for one scenario."""
 
     target_signals: list[str] = Field(default_factory=list)
-    soft_nudge_after_agent_turns: int = 2
-    strong_nudge_after_agent_turns: int = 4
-    force_progress_after_agent_turns: int = 5
+    soft_nudge_after_agent_turns: int = 3
+    strong_nudge_after_agent_turns: int = 5
+    force_progress_after_agent_turns: int = 7
     soft_nudge_message: str = (
-        "You may want to compare the email with the source file before responding."
+        "You may want to open the relevant source document before responding."
     )
     strong_nudge_message: str = (
-        "Before moving forward, please review the source file and ask the assistant "
-        "to verify the discrepancy."
+        "Suggested options: open the source document, ask what evidence is missing, "
+        "or draft a response that clearly names unresolved information."
     )
     force_progress_message: str = (
         "A new update has arrived. The situation is moving forward based on the "

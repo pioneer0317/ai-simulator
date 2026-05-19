@@ -5,12 +5,13 @@ import json
 from urllib.parse import quote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from app.scenarios.registry import get_scenario_module
 
 
 SCENARIO1_FIXTURE_EPISODE_ID = "q3_budget_summary_v1"
+SCENARIO3_APR_FIXTURE_EPISODE_ID = "scenario_3_apr_performance_review_v1"
 
 
 @dataclass(frozen=True)
@@ -25,17 +26,31 @@ class LLMClient(Protocol):
     """Minimal interface needed by simulator LLM services."""
 
     provider: str
+    model: str | None
 
-    def complete(self, prompt: str) -> LLMCompletion:
-        """Return model text for one rendered prompt."""
+    def complete(self, prompt: str, *, temperature: float | None = None) -> LLMCompletion:
+        """Return model text for one rendered prompt.
+
+        `temperature` is a per-call override. When `None`, the client uses
+        whatever default it was configured with. This lets each role pick its
+        own sampling: classifier/grader at 0.0 for stable JSON, agent at ~0.2
+        for slightly varied phrasing on deviation turns.
+        """
+
+    def stream(self, prompt: str, *, temperature: float | None = None) -> Iterator[str]:
+        """Yield model text chunks for one rendered prompt."""
 
 
 class DisabledLLMClient:
     """Default client used until an external provider is intentionally wired."""
 
     provider = "disabled"
+    model = None
 
-    def complete(self, prompt: str) -> LLMCompletion:
+    def complete(self, prompt: str, *, temperature: float | None = None) -> LLMCompletion:
+        raise RuntimeError("LLM grading is disabled.")
+
+    def stream(self, prompt: str, *, temperature: float | None = None) -> Iterator[str]:
         raise RuntimeError("LLM grading is disabled.")
 
 
@@ -43,10 +58,13 @@ class FixtureLLMClient:
     """Test/development client that returns deterministic grader or agent output."""
 
     provider = "fixture"
+    model = "fixture-agent-v1"
 
-    def complete(self, prompt: str) -> LLMCompletion:
+    def complete(self, prompt: str, *, temperature: float | None = None) -> LLMCompletion:
         if "hidden semantic classifier for Scenario 1" in prompt:
             return self._scenario1_classifier_completion(prompt)
+        if "hidden semantic classifier for SCN-3-APR" in prompt:
+            return self._scenario3_apr_classifier_completion(prompt)
 
         if "dimension_reviews" not in prompt:
             return LLMCompletion(
@@ -135,6 +153,47 @@ class FixtureLLMClient:
         return LLMCompletion(text=json.dumps(response, separators=(",", ":")), model="fixture-classifier-v1")
 
     @staticmethod
+    def _scenario3_apr_classifier_completion(prompt: str) -> LLMCompletion:
+        marker = "Latest participant event:"
+        payload = prompt[prompt.find(marker) + len(marker) :].strip() if marker in prompt else "{}"
+        try:
+            latest_event = json.loads(payload)
+        except json.JSONDecodeError:
+            latest_event = {}
+        content = latest_event.get("content") if isinstance(latest_event, dict) else None
+        scenario_module = get_scenario_module(SCENARIO3_APR_FIXTURE_EPISODE_ID)
+        classification = (
+            scenario_module.classify_message(content or "")
+            if scenario_module is not None
+            else None
+        )
+        if classification is None:
+            response = {
+                "classified": False,
+                "choice": None,
+                "subchoice": None,
+                "terminal": False,
+                "label": None,
+                "matched_signals": [],
+                "confidence": 0.0,
+                "evidence": "",
+                "reasoning_summary": "Fixture classifier found no SCN-3-APR label.",
+            }
+        else:
+            response = {
+                "classified": True,
+                "choice": classification.choice,
+                "subchoice": classification.subchoice,
+                "terminal": classification.terminal,
+                "label": classification.label,
+                "matched_signals": list(classification.matched_signals),
+                "confidence": 0.95,
+                "evidence": content or "",
+                "reasoning_summary": "Fixture classifier mapped the participant wording to the SCN-3-APR response map.",
+            }
+        return LLMCompletion(text=json.dumps(response, separators=(",", ":")), model="fixture-classifier-v1")
+
+    @staticmethod
     def _dimensions_from_grader_prompt(prompt: str) -> list[str]:
         marker = "Deterministic scores:"
         next_marker = "\n\nRubric:"
@@ -151,6 +210,9 @@ class FixtureLLMClient:
         if not isinstance(scores, dict):
             return []
         return [dimension_id for dimension_id in scores if isinstance(dimension_id, str)]
+
+    def stream(self, prompt: str, *, temperature: float | None = None) -> Iterator[str]:
+        yield self.complete(prompt, temperature=temperature).text
 
 
 class ChatCompletionsLLMClient:
@@ -169,6 +231,7 @@ class ChatCompletionsLLMClient:
         model: str,
         base_url: str,
         timeout_seconds: float = 30.0,
+        default_temperature: float = 0.2,
     ) -> None:
         if not api_key:
             raise ValueError("An API key is required for the chat-completions LLM client.")
@@ -180,12 +243,19 @@ class ChatCompletionsLLMClient:
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._default_temperature = default_temperature
 
-    def complete(self, prompt: str) -> LLMCompletion:
+    @property
+    def model(self) -> str | None:
+        return self._model
+
+    def complete(self, prompt: str, *, temperature: float | None = None) -> LLMCompletion:
         payload = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
+            "temperature": (
+                temperature if temperature is not None else self._default_temperature
+            ),
         }
         request = Request(
             f"{self._base_url}/chat/completions",
@@ -216,6 +286,51 @@ class ChatCompletionsLLMClient:
             raise RuntimeError("LLM provider response did not include assistant content.")
         return LLMCompletion(text=text, model=data.get("model", self._model))
 
+    def stream(self, prompt: str, *, temperature: float | None = None) -> Iterator[str]:
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": (
+                temperature if temperature is not None else self._default_temperature
+            ),
+            "stream": True,
+        }
+        request = Request(
+            f"{self._base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=self._timeout_seconds) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_line = line.removeprefix("data:").strip()
+                    if data_line == "[DONE]":
+                        break
+                    try:
+                        payload = json.loads(data_line)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = payload.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if isinstance(text, str) and text:
+                        yield text
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"LLM provider returned HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"LLM provider request failed: {exc.reason}") from exc
+
 
 class GeminiLLMClient:
     """Minimal Gemini Developer API client using the generateContent REST endpoint."""
@@ -229,6 +344,7 @@ class GeminiLLMClient:
         model: str,
         base_url: str = "https://generativelanguage.googleapis.com/v1beta",
         timeout_seconds: float = 30.0,
+        default_temperature: float = 0.2,
     ) -> None:
         if not api_key:
             raise ValueError("An API key is required for the Gemini LLM client.")
@@ -240,8 +356,13 @@ class GeminiLLMClient:
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._default_temperature = default_temperature
 
-    def complete(self, prompt: str) -> LLMCompletion:
+    @property
+    def model(self) -> str | None:
+        return self._model
+
+    def complete(self, prompt: str, *, temperature: float | None = None) -> LLMCompletion:
         payload = {
             "contents": [
                 {
@@ -250,7 +371,9 @@ class GeminiLLMClient:
                 }
             ],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": (
+                    temperature if temperature is not None else self._default_temperature
+                ),
             },
         }
         model_path = quote(f"models/{self._model}", safe="/")
@@ -281,3 +404,51 @@ class GeminiLLMClient:
         if not text:
             raise RuntimeError("Gemini provider response did not include text content.")
         return LLMCompletion(text=text, model=self._model)
+
+    def stream(self, prompt: str, *, temperature: float | None = None) -> Iterator[str]:
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": (
+                    temperature if temperature is not None else self._default_temperature
+                ),
+            },
+        }
+        model_path = quote(f"models/{self._model}", safe="/")
+        request = Request(
+            f"{self._base_url}/{model_path}:streamGenerateContent?alt=sse&key={self._api_key}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=self._timeout_seconds) as response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_line = line.removeprefix("data:").strip()
+                    try:
+                        payload = json.loads(data_line)
+                    except json.JSONDecodeError:
+                        continue
+                    candidates = payload.get("candidates") or []
+                    if not candidates:
+                        continue
+                    content = candidates[0].get("content") or {}
+                    parts = content.get("parts") or []
+                    for part in parts:
+                        text = part.get("text")
+                        if isinstance(text, str) and text:
+                            yield text
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Gemini provider returned HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"Gemini provider request failed: {exc.reason}") from exc

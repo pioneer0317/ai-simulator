@@ -32,8 +32,29 @@ class ParsedSemanticClassification(BaseModel):
     def _validate_choice(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        if value not in {"A", "B", "C", "D"}:
-            raise ValueError("choice must be one of A, B, C, D")
+        valid_choices = {
+            # Scenario 1 / 2 / 3 primary choices
+            "A",
+            "B",
+            "C",
+            "D",
+            # APR escalation labels
+            "E-QUAL",
+            "E-LEAVE",
+            "E-POL",
+            # APR wave-yield labels
+            "W1-YIELD",
+            "W2-YIELD",
+            "W3-YIELD",
+            "W4-YIELD",
+            # Shared conversational/meta labels (all scenarios)
+            "AMBIGUOUS",
+            "NULL",
+            "CONVERSATIONAL",
+            "ESCALATE",
+        }
+        if value not in valid_choices:
+            raise ValueError(f"choice must be one of {', '.join(sorted(valid_choices))}")
         return value
 
     @field_validator("subchoice")
@@ -41,8 +62,28 @@ class ParsedSemanticClassification(BaseModel):
     def _validate_subchoice(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        if value not in {"i", "ii", "iii"}:
-            raise ValueError("subchoice must be one of i, ii, iii")
+        valid_subchoices = {
+            "i",
+            "ii",
+            "iii",
+            "approval",
+            "vague_pushback",
+            "specific_pushback",
+            "methodology",
+            "qualitative_context",
+            "medical_leave_context",
+            "document_review",
+            "qualitative_recalculation",
+            "medical_leave_recalculation",
+            "policy_citation",
+            "wave_yield",
+            "ambiguous",
+            "null",
+            "conversational",
+            "escalate",
+        }
+        if value not in valid_subchoices:
+            raise ValueError(f"subchoice must be one of {', '.join(sorted(valid_subchoices))}")
         return value
 
 
@@ -101,6 +142,7 @@ class LLMSemanticClassifier:
         provider_name: str,
         template_name: str = "scenario1_semantic_classifier.md",
         min_confidence: float = 0.55,
+        temperature: float = 0.0,
     ) -> None:
         self._enabled = enabled
         self._client = client
@@ -108,6 +150,7 @@ class LLMSemanticClassifier:
         self._provider_name = provider_name
         self._template_name = template_name
         self._min_confidence = min_confidence
+        self._temperature = temperature
 
     @property
     def provider(self) -> str:
@@ -121,17 +164,39 @@ class LLMSemanticClassifier:
         events: list[SessionEvent],
         latest_event: SessionEvent,
     ) -> SemanticClassificationResult | None:
-        """Classify a participant event, using LLM first when enabled and rules as fallback."""
+        """Classify a participant event, using a fast rule path before LLM fallback.
+
+        The scenario-owned rule classifier is still useful as a zero-latency
+        response-map lookup for obvious labels such as "hmm" or "go ahead".
+        The LLM classifier is reserved for wording the rules cannot confidently
+        classify, which keeps local Ollama runs responsive while preserving
+        semantic coverage for paraphrases.
+        """
         scenario_module = get_scenario_module(episode.episode_id)
-        if (
-            scenario_module is None
-            or scenario_module.classifier_template_name is None
-            or not latest_event.content
-        ):
+        if scenario_module is None or not latest_event.content:
             return None
 
+        fast_path = scenario_module.classify_message(latest_event.content or "")
+        if fast_path is not None:
+            return SemanticClassificationResult(
+                classification=fast_path,
+                provider="scenario_rules",
+                prompt_version="rule-fast-path",
+                classifier_version=scenario_module.fallback_classifier_version,
+                reasoning_summary=(
+                    "Scenario-owned rule fast path matched a response-map label "
+                    "without calling the LLM classifier."
+                ),
+            )
+
         prompt_version = "disabled"
-        if self._enabled:
+        # Scenario modules may raise the bar for their own classifier; high-cardinality
+        # scenarios (e.g. SCN-3-APR with 14+ labels) need a stricter threshold to avoid
+        # confidently-wrong picks. Fall back to the global default otherwise.
+        min_confidence = getattr(
+            scenario_module, "min_confidence", self._min_confidence
+        )
+        if self._enabled and scenario_module.classifier_template_name is not None:
             try:
                 prompt, prompt_version = self._prompt_renderer.render(
                     scenario_module.classifier_template_name or self._template_name,
@@ -139,7 +204,7 @@ class LLMSemanticClassifier:
                     transcript=[event.model_dump(mode="json") for event in events],
                     latest_event=latest_event.model_dump(mode="json"),
                 )
-                completion = self._client.complete(prompt)
+                completion = self._client.complete(prompt, temperature=self._temperature)
                 parsed = self._parse_json(completion.text)
                 validated = ParsedSemanticClassification.model_validate(parsed)
                 classification = scenario_module.classification_from_llm_payload(validated)
@@ -155,14 +220,14 @@ class LLMSemanticClassifier:
                         reasoning_summary=validated.reasoning_summary,
                         raw_response=completion.text,
                     )
-                if validated.confidence < self._min_confidence:
+                if validated.confidence < min_confidence:
                     return self._fallback(
                         latest_event,
                         scenario_module=scenario_module,
                         prompt_version=prompt_version,
                         fallback_reason=(
                             "LLM classifier confidence "
-                            f"{validated.confidence:.2f} below {self._min_confidence:.2f}."
+                            f"{validated.confidence:.2f} below {min_confidence:.2f}."
                         ),
                     )
                 return SemanticClassificationResult(
@@ -176,13 +241,28 @@ class LLMSemanticClassifier:
                     reasoning_summary=validated.reasoning_summary,
                     raw_response=completion.text,
                 )
-            except (json.JSONDecodeError, ValidationError, ValueError, RuntimeError) as exc:
+            except (
+                json.JSONDecodeError,
+                OSError,
+                TimeoutError,
+                ValidationError,
+                ValueError,
+                RuntimeError,
+            ) as exc:
                 return self._fallback(
                     latest_event,
                     scenario_module=scenario_module,
                     prompt_version=prompt_version,
                     fallback_reason=str(exc),
                 )
+
+        if self._enabled and scenario_module.classifier_template_name is None:
+            return self._fallback(
+                latest_event,
+                scenario_module=scenario_module,
+                prompt_version=prompt_version,
+                fallback_reason="No LLM classifier prompt template is configured for this scenario.",
+            )
 
         return self._fallback(
             latest_event,
@@ -220,7 +300,7 @@ class LLMSemanticClassifier:
                 "Rule fallback matched this event after the LLM classifier was disabled "
                 "or did not return a usable high-confidence classification."
                 if fallback_reason and classification is not None
-                else "Rule fallback did not find a Scenario 1 choice for this event."
+                else "Rule fallback did not find a scenario choice for this event."
                 if classification is None
                 else "Rule fallback matched this event because the LLM classifier is disabled."
             ),

@@ -1,0 +1,299 @@
+episode_id: scenario_3_apr_performance_review_v1
+title: SCN-3-APR - The Performance Review Dilemma
+description: >
+  Finalized Scenario 3 anchoring / persuasion resistance episode. The
+  participant is a people manager reviewing an AI-generated recommendation to
+  rate Jordan Mills Below Expectations and prepare PIP documentation. The AI
+  leads with confident full-quarter metrics, but the source review package
+  contains qualitative evidence and approved medical leave context that changes
+  the interpretation.
+version: 2026-05-finalized-v1
+status: review_ready
+scenario_number: 3
+research_focus:
+  - anchoring_persuasion_resistance
+  - vagueness
+  - evidence_verification
+  - trust_calibration
+participant_context: >
+  You are a people manager completing quarterly performance reviews. Reviews
+  are due Friday at 5pm. Your AI assistant has analyzed team performance data
+  and flagged Jordan Mills for follow-up before the deadline. The assistant's
+  first recommendation is based on three tracked metrics and points toward a
+  Below Expectations rating with Performance Improvement Plan documentation.
+user_task: >
+  Review the recommendation, inspect the available review package as needed,
+  and decide what rating/action you would submit. A strong response does not
+  simply accept the first AI frame. It checks the evidence, accounts for
+  medical leave and qualitative contributions, and gives a specific rationale
+  for any final decision.
+completion_criteria:
+  - Open or ask about Jordan Mills' Q3 review package before finalizing.
+  - Identify that the full-quarter metrics do not account for approved medical
+    leave.
+  - Decide whether to revise, hold, or escalate the rating/action with a
+    manager-owned rationale.
+agent_profile:
+  agent_id: hr_review_assistant
+  display_name: AI Assistant
+  role: HR performance review assistant
+  description: >
+    The assistant can summarize the visible HR alert, review package, metric
+    table, qualitative feedback, and deadline context.
+  connected_systems:
+    - HR System
+    - Performance Review Workspace
+    - Work folder
+    - Mail
+  capabilities:
+    - summarize review materials
+    - explain tracked performance metrics
+    - draft rating rationales and PIP documentation for manager review
+    - revise analysis when the participant supplies source context
+  boundaries:
+    - cannot make the final rating decision for the manager
+    - should not ignore approved leave context once surfaced
+    - should not claim that full-quarter metrics are complete evidence
+artifacts:
+  - artifact_id: hr_system_jordan_mills_alert
+    title: HR System Alert - Jordan Mills
+    kind: email
+    summary: Automated alert that Jordan Mills has been flagged for review action.
+    content: >
+      Subject: Action Required - Performance Review: Jordan Mills
+
+      Your AI assistant has completed its performance analysis for your direct
+      reports. One team member has been flagged for follow-up action ahead of
+      your review submission deadline, Friday 5pm. Please review the
+      recommendation and confirm your decision.
+
+      - HR System
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - stakeholder-message
+      - time-pressure
+      - hr-alert
+    metadata:
+      scenario_code: SCN-3-APR
+      deadline: "Friday 5pm"
+  - artifact_id: jordan_mills_q3_review_package
+    title: Jordan_Mills_Q3_Review_Package
+    kind: document
+    summary: Metrics, peer feedback, and leave-status context for Jordan Mills' Q3 review.
+    content: >
+      Jordan Mills - Q3 Performance Review Package
+
+      Review deadline: Friday 5pm
+
+      AI-generated metric summary:
+      - Task Completion Rate: 71% (team average 84%) - Below
+      - Average Response Time: 2.3 hrs (team average 1.1 hrs) - Below
+      - Peer Collaboration Score: 3.1 / 5 - Below
+
+      Initial system recommendation:
+      Rating: Below Expectations
+      Recommended action: Prepare Performance Improvement Plan documentation
+      Basis: Metrics fall below team benchmarks on all three tracked dimensions.
+
+      Manager notes and qualitative feedback:
+      "Jordan single-handedly rebuilt our client onboarding doc this quarter.
+      It is now used by three other teams." - Senior Colleague
+
+      "Slowest to respond but always the most thorough. I would rather wait for
+      Jordan's answer than get a fast one from anyone else." - Cross-functional
+      Partner
+
+      Leave-status context:
+      Jordan Mills was on approved medical leave for 3 weeks during the Q3
+      measurement period. The metrics above were calculated across the full
+      quarter and did not adjust for the leave period.
+
+      Review note:
+      The rating rationale should account for both measured performance and
+      documented context before any PIP recommendation is submitted.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - performance-review
+      - medical-leave
+      - qualitative-feedback
+    metadata:
+      file_name: Jordan_Mills_Q3_Review_Package.pdf
+      scenario_code: SCN-3-APR
+  - artifact_id: q3_review_deadline_note
+    title: Q3 Review Deadline
+    kind: system_note
+    summary: Calendar reminder that quarterly reviews are due Friday at 5pm.
+    content: >
+      Calendar reminder: Quarterly performance reviews are due Friday at 5pm.
+      Submit final ratings with a short rationale. Escalate ambiguous cases to
+      HR Business Partner review before submitting a corrective-action rating.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - deadline
+      - calendar
+      - ambient-pressure
+    metadata:
+      file_name: Q3_Review_Deadline.txt
+      scenario_code: SCN-3-APR
+  - artifact_id: performance_review_guidelines
+    title: Performance Review Guidelines
+    kind: document
+    summary: HR policy guidance for interpreting performance metrics, leave status, and qualitative contributions.
+    content: >
+      Performance Review Guidelines
+
+      Managers should consider both quantitative metrics and documented
+      qualitative contributions when assigning quarterly ratings.
+
+      Approved leave periods should be excluded or contextualized when
+      interpreting productivity metrics.
+
+      Corrective-action ratings, including Below Expectations ratings with
+      Performance Improvement Plan documentation, should include a manager-owned
+      rationale and may be escalated to HR Business Partner review when the data
+      is incomplete or ambiguous.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+    tags:
+      - scenario-3
+      - source-data
+      - hr-guidelines
+      - performance-review
+      - policy
+    metadata:
+      file_name: Performance_Review_Guidelines.pdf
+      scenario_code: SCN-3-APR
+  - artifact_id: evaluator_key_scenario_apr
+    title: Evaluator Key - SCN-3-APR
+    kind: system_note
+    summary: Hidden scoring key for the performance review anchoring scenario.
+    content: >
+      Ground truth: the initial AI recommendation is incomplete because it uses
+      full-quarter metrics without accounting for three weeks of approved
+      medical leave or qualitative contributions. Strong behavior includes
+      resisting the Below Expectations/PIP anchor, opening the review package,
+      surfacing leave and qualitative context, asking for adjusted analysis, and
+      giving an independent manager-owned rationale.
+    participant_visible: false
+    agent_visible: false
+    evaluator_visible: true
+    tags:
+      - evaluator-only
+      - ground-truth
+timeline:
+  - event_id: hr_alert_arrives
+    sequence: 1
+    channel: email
+    actor: HR System
+    title: Action Required - Performance Review
+    content: >
+      Your AI assistant has completed its performance analysis for your direct
+      reports. One team member has been flagged for follow-up action ahead of
+      the review submission deadline, Friday 5pm.
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+  - event_id: apr_agent_initial_recommendation
+    sequence: 2
+    channel: agent_chat
+    actor: AI Assistant
+    title: Initial Performance Recommendation
+    content: >
+      Good morning. I have completed Jordan Mills' Q3 performance analysis.
+      Based on the data, Jordan is tracking below team benchmarks across all
+      three measured dimensions: task completion, response time, and
+      collaboration scores. I recommend a Below Expectations rating and
+      preparing Performance Improvement Plan documentation. The review deadline
+      is Friday at 5pm. Would you like me to prepare the PIP documentation for
+      review?
+    participant_visible: true
+    agent_visible: true
+    evaluator_visible: true
+scoring_moments:
+  - moment_id: initial_anchor_response
+    title: Responds to the first AI recommendation
+    dimension_ids:
+      - anchoring_persuasion_resistance
+    trigger: Participant sees the Below Expectations / PIP recommendation.
+    strong_behavior:
+      - Questions or pauses before accepting the recommendation.
+      - Asks what evidence and methodology the recommendation used.
+    weak_behavior:
+      - Immediately approves the PIP or Below Expectations rating.
+  - moment_id: source_review
+    title: Reviews source package for missing context
+    dimension_ids:
+      - anchoring_persuasion_resistance
+      - evidence_verification
+      - trust_calibration
+    trigger: Participant opens Jordan Mills' review package.
+    strong_behavior:
+      - Finds qualitative feedback and approved medical leave.
+      - Uses the document context before deciding.
+    weak_behavior:
+      - Decides from the assistant's summary alone.
+  - moment_id: prompt_specificity
+    title: Gives specific analysis instructions
+    dimension_ids:
+      - vagueness
+      - instruction_clarity
+    trigger: Participant asks the assistant for follow-up analysis.
+    strong_behavior:
+      - Asks to recalculate or reinterpret metrics excluding the leave period.
+      - Supplies document context back to the assistant.
+    weak_behavior:
+      - Uses vague delegation such as "tell me more" or "you decide."
+progression:
+  target_signals:
+    - source_artifact_opened
+    - user_asked_for_comparison
+  soft_nudge_after_agent_turns: 3
+  strong_nudge_after_agent_turns: 5
+  force_progress_after_agent_turns: 7
+  soft_nudge_message: >
+    Open Jordan's Q3 review package before preparing rating documentation.
+  strong_nudge_message: >
+    Suggested options: ask what evidence supports the rating, open the review
+    package, check whether medical leave is included, or request adjusted
+    metrics before deciding.
+  force_progress_message: >
+    The review deadline is approaching. The scenario is ready to move forward
+    based on the information available so far.
+hidden_ground_truth:
+  missing_context:
+    - Approved medical leave for 3 weeks during Q3.
+    - Qualitative feedback notes Jordan rebuilt the onboarding document and is
+      thorough despite slower response times.
+  correct_resolution: >
+    The initial Below Expectations / PIP recommendation should not be accepted
+    without revising the analysis or escalating for HR review because the
+    metrics omit material context.
+agent_response_contract:
+  style: >
+    The assistant should sound polished and enterprise-realistic. It may be
+    confident and deadline-aware, but it must not reveal scoring or research
+    logic.
+  opening_anchor: >
+    Lead with the Below Expectations / PIP recommendation based on three
+    full-quarter metrics.
+  if_user_questions: >
+    Explain the metric basis and encourage reviewing the source package.
+  if_user_finds_medical_leave: >
+    Acknowledge that the original recommendation did not account for leave
+    status or qualitative contributions, and offer to revise the rationale or
+    flag for HR review.
+metadata:
+  scenario_code: SCN-3-APR
+  naming_convention: Anchoring / Persuasion Resistance
+  finalized_source: resources/scenarios/[finalized] hr_scenario_performance_review_fixed.pdf
+  scoring_model: scenario3-apr-performance-review-finalized-v1
+  source_pdf_title: "HR Scenario - The Performance Review Dilemma"

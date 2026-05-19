@@ -11,6 +11,19 @@ from app.schemas.scoring import DeterministicScoringResult, DimensionScore, Scor
 from app.schemas.session import SessionEvent
 
 
+# Metadata keys produced by scenario semantic classifiers (LLM or rule fallback)
+# that hold the list of matched behavioral signals for one participant event.
+# The deterministic rubric reads these so that paraphrased natural language —
+# already mapped to a high-confidence intent by the classifier — counts as
+# evidence for the matching rubric dimension, even when no rubric keyword fires.
+_SCENARIO_MATCHED_SIGNAL_KEYS: tuple[str, ...] = (
+    "scenario1_matched_signals",
+    "scenario2_matched_signals",
+    "scenario_apr_matched_signals",
+    "scenario3_matched_signals",
+)
+
+
 class DeterministicScorer:
     """Apply editable keyword/action/artifact signals before any LLM review."""
 
@@ -29,13 +42,46 @@ class DeterministicScorer:
         episode: EpisodeDefinition,
         events: list[SessionEvent],
     ) -> DeterministicScoringResult:
-        """Score a session transcript using deterministic rubric signals."""
-        scenario_module = get_scenario_module(episode.episode_id)
-        if scenario_module is not None:
-            scenario_result = scenario_module.score(events)
-            if scenario_result is not None:
-                return scenario_result
+        """Score a session using the YAML rubric, then layer scenario-specific dimensions on top."""
+        rubric_result = self._score_with_rubric(episode=episode, events=events)
 
+        scenario_module = get_scenario_module(episode.episode_id)
+        if scenario_module is None:
+            return rubric_result
+
+        scenario_result = scenario_module.score(events)
+        if scenario_result is None:
+            return rubric_result
+
+        # Scenario-specific scores win on overlapping dimensions because they
+        # are tuned to the episode rather than the generic rubric.
+        merged_scores: dict[str, DimensionScore] = dict(rubric_result.scores)
+        merged_scores.update(scenario_result.scores)
+
+        # An event is only "unclassified" when neither layer recognized it.
+        rubric_unclassified = set(rubric_result.unclassified_event_ids)
+        scenario_unclassified = set(scenario_result.unclassified_event_ids)
+        merged_unclassified = sorted(rubric_unclassified & scenario_unclassified)
+
+        if rubric_result.rubric_version == scenario_result.rubric_version:
+            rubric_version = rubric_result.rubric_version
+        else:
+            rubric_version = (
+                f"{scenario_result.rubric_version}+{rubric_result.rubric_version}"
+            )
+
+        return DeterministicScoringResult(
+            scores=merged_scores,
+            unclassified_event_ids=merged_unclassified,
+            rubric_version=rubric_version,
+        )
+
+    def _score_with_rubric(
+        self,
+        *,
+        episode: EpisodeDefinition,
+        events: list[SessionEvent],
+    ) -> DeterministicScoringResult:
         scores: dict[str, DimensionScore] = {}
         classified_event_ids: set[str] = set()
 
@@ -109,6 +155,10 @@ class DeterministicScorer:
             elif source == "artifact":
                 evidence.extend(
                     self._artifact_evidence(dimension_id, signal_map, events, artifact_map)
+                )
+            elif source == "semantic_signal":
+                evidence.extend(
+                    self._semantic_signal_evidence(dimension_id, signal_map, events)
                 )
 
         return evidence
@@ -209,6 +259,66 @@ class DeterministicScorer:
                         "artifact_id": artifact.artifact_id,
                         "artifact_tags": artifact.tags,
                         "artifact_kind": artifact.kind,
+                    },
+                )
+            )
+        return evidence
+
+    def _semantic_signal_evidence(
+        self,
+        dimension_id: str,
+        signal: Mapping[str, Any],
+        events: list[SessionEvent],
+    ) -> list[ScoreEvidence]:
+        """Match scenario-classifier intent tags stored on participant events.
+
+        The semantic classifier (LLM or rule fallback) attaches lists like
+        ``scenario1_matched_signals`` to each participant message it could
+        classify. By exposing those tags as a rubric source, the rubric can
+        recognize paraphrased intent — e.g., "let's pause and ping Marcus" —
+        even when the literal message keywords would not trigger any signal.
+        """
+        target_signals = {
+            str(name) for name in self._as_list(signal.get("scenario_signals"))
+        }
+        if not target_signals:
+            return []
+
+        choice_filter = {
+            str(choice).upper() for choice in self._as_list(signal.get("scenario_choices"))
+        }
+        evidence: list[ScoreEvidence] = []
+        for event in events:
+            if event.actor != "participant":
+                continue
+
+            matched: list[str] = []
+            for key in _SCENARIO_MATCHED_SIGNAL_KEYS:
+                for signal_name in self._as_list(event.metadata.get(key)):
+                    if str(signal_name) in target_signals:
+                        matched.append(str(signal_name))
+            if not matched:
+                continue
+
+            if choice_filter:
+                event_choices = {
+                    str(event.metadata.get("scenario1_choice", "")).upper(),
+                    str(event.metadata.get("scenario2_choice", "")).upper(),
+                    str(event.metadata.get("scenario3_choice", "")).upper(),
+                }
+                if not (event_choices & choice_filter):
+                    continue
+
+            evidence.append(
+                self._evidence(
+                    dimension_id=dimension_id,
+                    signal=signal,
+                    source="semantic_signal",
+                    source_id=event.event_id,
+                    excerpt=self._excerpt(event.content or event.event_type),
+                    metadata={
+                        "matched_classifier_signals": sorted(set(matched)),
+                        "event_type": event.event_type,
                     },
                 )
             )

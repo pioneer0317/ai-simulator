@@ -4,7 +4,7 @@ import csv
 from io import StringIO
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from app.schemas.episode import EpisodeCatalogEntry, ParticipantEpisode
 from app.schemas.scoring import EpisodeScoringResponse
@@ -207,6 +207,27 @@ def generate_agent_turn(
     """Log a participant message and generate a bounded dynamic agent reply."""
     try:
         return _service(request).generate_agent_turn(session_id, payload, background_tasks)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidArtifactError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/agent-turn/stream")
+def stream_agent_turn(
+    session_id: str,
+    payload: AgentTurnRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> StreamingResponse:
+    """Log a participant message and stream agent reply chunks as NDJSON."""
+    try:
+        stream = _service(request).stream_agent_turn(session_id, payload, background_tasks)
+        return StreamingResponse(
+            stream,
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     except SessionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InvalidArtifactError as exc:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
@@ -152,9 +154,165 @@ class EpisodeSessionService:
         background_tasks: Any | None = None,
     ) -> AgentTurnResponse:
         """Log the participant message and append a bounded dynamic agent reply."""
+        turn_started_at = perf_counter()
+        record, episode, user_event = self._start_agent_turn(
+            session_id=session_id,
+            request=request,
+            background_tasks=background_tasks,
+        )
+
+        generation_started_at = perf_counter()
+        try:
+            response_text, prompt_version, model = self._agent_responder.generate(
+                episode=episode,
+                events=record.events,
+                latest_user_message=request.message,
+                referenced_artifact_ids=request.referenced_artifact_ids,
+            )
+            agent_event = self._build_agent_event(
+                record=record,
+                content=response_text,
+                provider=self._agent_responder.provider,
+                model=model,
+                prompt_version=prompt_version,
+                referenced_artifact_ids=request.referenced_artifact_ids,
+                timing_ms={
+                    "agent_generation": self._elapsed_ms(generation_started_at),
+                    "turn_total": self._elapsed_ms(turn_started_at),
+                },
+            )
+            self._append_event(record, agent_event)
+            progression = self._evaluate_progression(record)
+            self._append_progression_events(record, progression)
+            return AgentTurnResponse(
+                session_id=session_id,
+                status="completed",
+                provider=self._agent_responder.provider,
+                model=model,
+                prompt_version=prompt_version,
+                user_event=user_event,
+                agent_event=agent_event,
+                progression=progression,
+            )
+        except AgentResponderUnavailable as exc:
+            return self._fallback_turn_response(
+                record=record,
+                episode=episode,
+                user_event=user_event,
+                request=request,
+                exc=exc,
+                disabled_status="disabled",
+                turn_started_at=turn_started_at,
+            )
+        except Exception as exc:  # pragma: no cover - defensive provider boundary
+            return self._fallback_turn_response(
+                record=record,
+                episode=episode,
+                user_event=user_event,
+                request=request,
+                exc=exc,
+                disabled_status="failed",
+                turn_started_at=turn_started_at,
+            )
+
+    def stream_agent_turn(
+        self,
+        session_id: str,
+        request: AgentTurnRequest,
+        background_tasks: Any | None = None,
+    ):
+        """Log a participant message and stream the visible assistant reply."""
+        turn_started_at = perf_counter()
+        record, episode, user_event = self._start_agent_turn(
+            session_id=session_id,
+            request=request,
+            background_tasks=background_tasks,
+        )
+
+        def event_stream():
+            generation_started_at = perf_counter()
+            try:
+                final_text = ""
+                prompt_version = self._agent_responder.prompt_version()
+                model = self._agent_responder.provider
+                for stream_event in self._agent_responder.stream_generate(
+                    episode=episode,
+                    events=record.events,
+                    latest_user_message=request.message,
+                    referenced_artifact_ids=request.referenced_artifact_ids,
+                ):
+                    if stream_event.event in {"chunk", "replace"}:
+                        yield self._stream_line(stream_event.event, text=stream_event.text)
+                        continue
+                    final_text = stream_event.text
+                    prompt_version = stream_event.prompt_version or prompt_version
+                    model = stream_event.model
+
+                agent_event = self._build_agent_event(
+                    record=record,
+                    content=final_text,
+                    provider=self._agent_responder.provider,
+                    model=model,
+                    prompt_version=prompt_version,
+                    referenced_artifact_ids=request.referenced_artifact_ids,
+                    timing_ms={
+                        "agent_generation": self._elapsed_ms(generation_started_at),
+                        "turn_total": self._elapsed_ms(turn_started_at),
+                    },
+                )
+                self._append_event(record, agent_event)
+                progression = self._evaluate_progression(record)
+                self._append_progression_events(record, progression)
+                response = AgentTurnResponse(
+                    session_id=session_id,
+                    status="completed",
+                    provider=self._agent_responder.provider,
+                    model=model,
+                    prompt_version=prompt_version,
+                    user_event=user_event,
+                    agent_event=agent_event,
+                    progression=progression,
+                )
+                yield self._stream_line("final", response=response.model_dump(mode="json"))
+            except AgentResponderUnavailable as exc:
+                response = self._fallback_turn_response(
+                    record=record,
+                    episode=episode,
+                    user_event=user_event,
+                    request=request,
+                    exc=exc,
+                    disabled_status="disabled",
+                    turn_started_at=turn_started_at,
+                )
+                yield from self._stream_fallback_response(response)
+            except Exception as exc:  # pragma: no cover - defensive provider boundary
+                response = self._fallback_turn_response(
+                    record=record,
+                    episode=episode,
+                    user_event=user_event,
+                    request=request,
+                    exc=exc,
+                    disabled_status="failed",
+                    turn_started_at=turn_started_at,
+                )
+                yield from self._stream_fallback_response(response)
+
+        return event_stream()
+
+    def _start_agent_turn(
+        self,
+        *,
+        session_id: str,
+        request: AgentTurnRequest,
+        background_tasks: Any | None,
+    ):
         record = self._get_record(session_id)
         for artifact_id in request.referenced_artifact_ids:
             self._validate_artifact(record, artifact_id)
+
+        # Load the episode once per turn — the agent responder, fallback, and
+        # progression checks all need it and the YAML is immutable per session.
+        episode = self._episode_loader.get(record.episode_id)
 
         user_event = self._build_event(
             record=record,
@@ -173,12 +331,34 @@ class EpisodeSessionService:
                 },
             ),
         )
+        self._apply_rule_fast_path_classification(record, user_event)
         self._append_event(record, user_event)
         self._schedule_semantic_classification(record, user_event, background_tasks)
+        return record, episode, user_event
 
-        try:
-            episode = self._episode_loader.get(record.episode_id)
-            response_text, prompt_version, model = self._agent_responder.generate(
+    def _fallback_turn_response(
+        self,
+        *,
+        record: SessionRecord,
+        episode,
+        user_event: SessionEvent,
+        request: AgentTurnRequest,
+        exc: Exception,
+        disabled_status: str,
+        turn_started_at: float | None = None,
+    ) -> AgentTurnResponse:
+        """Build the fallback or disabled response when the LLM agent can't reply.
+
+        Centralizes what used to be three near-identical blocks (AgentResponderUnavailable,
+        generic Exception, assistant_fallback_enabled=False). Behavior is:
+        - If `assistant_fallback_enabled`, run the deterministic ScenarioFallbackAgentResponder
+          and surface its reply with status="fallback".
+        - Otherwise, return the failure status (`disabled` for the explicit "agent not enabled"
+          case, `failed` for unexpected provider errors).
+        """
+        session_id = record.session_id
+        if self._assistant_fallback_enabled:
+            fallback_reply = self._fallback_agent_responder.generate(
                 episode=episode,
                 events=record.events,
                 latest_user_message=request.message,
@@ -188,14 +368,16 @@ class EpisodeSessionService:
                 record=record,
                 event_type="agent_message",
                 actor="agent",
-                content=response_text,
+                content=fallback_reply.text,
                 artifact_id=None,
                 metadata={
-                    "provider": self._agent_responder.provider,
-                    "model": model,
-                    "prompt_version": prompt_version,
+                    "provider": self._fallback_agent_responder.provider,
+                    "model": fallback_reply.model,
+                    "prompt_version": fallback_reply.prompt_version,
                     "bounded_context": True,
+                    "fallback_reason": str(exc),
                     "referenced_artifact_ids": request.referenced_artifact_ids,
+                    "timing_ms": self._timing_payload(turn_started_at),
                 },
             )
             self._append_event(record, agent_event)
@@ -203,106 +385,94 @@ class EpisodeSessionService:
             self._append_progression_events(record, progression)
             return AgentTurnResponse(
                 session_id=session_id,
-                status="completed",
-                provider=self._agent_responder.provider,
-                model=model,
-                prompt_version=prompt_version,
+                status="fallback",
+                provider=self._fallback_agent_responder.provider,
+                model=fallback_reply.model,
+                prompt_version=fallback_reply.prompt_version,
                 user_event=user_event,
                 agent_event=agent_event,
                 progression=progression,
             )
-        except AgentResponderUnavailable as exc:
-            if self._assistant_fallback_enabled:
-                episode = self._episode_loader.get(record.episode_id)
-                fallback_reply = self._fallback_agent_responder.generate(
-                    episode=episode,
-                    events=record.events,
-                    latest_user_message=request.message,
-                    referenced_artifact_ids=request.referenced_artifact_ids,
-                )
-                agent_event = self._build_event(
-                    record=record,
-                    event_type="agent_message",
-                    actor="agent",
-                    content=fallback_reply.text,
-                    artifact_id=None,
-                    metadata={
-                        "provider": self._fallback_agent_responder.provider,
-                        "model": fallback_reply.model,
-                        "prompt_version": fallback_reply.prompt_version,
-                        "bounded_context": True,
-                        "fallback_reason": str(exc),
-                        "referenced_artifact_ids": request.referenced_artifact_ids,
-                    },
-                )
-                self._append_event(record, agent_event)
-                progression = self._evaluate_progression(record)
-                self._append_progression_events(record, progression)
-                return AgentTurnResponse(
-                    session_id=session_id,
-                    status="fallback",
-                    provider=self._fallback_agent_responder.provider,
-                    model=fallback_reply.model,
-                    prompt_version=fallback_reply.prompt_version,
-                    user_event=user_event,
-                    agent_event=agent_event,
-                    progression=progression,
-                )
 
-            return AgentTurnResponse(
-                session_id=session_id,
-                status="disabled",
-                provider=self._agent_responder.provider,
-                prompt_version=self._agent_responder.prompt_version(),
-                user_event=user_event,
-                error=str(exc),
-            )
-        except Exception as exc:  # pragma: no cover - defensive provider boundary
-            if self._assistant_fallback_enabled:
-                episode = self._episode_loader.get(record.episode_id)
-                fallback_reply = self._fallback_agent_responder.generate(
-                    episode=episode,
-                    events=record.events,
-                    latest_user_message=request.message,
-                    referenced_artifact_ids=request.referenced_artifact_ids,
-                )
-                agent_event = self._build_event(
-                    record=record,
-                    event_type="agent_message",
-                    actor="agent",
-                    content=fallback_reply.text,
-                    artifact_id=None,
-                    metadata={
-                        "provider": self._fallback_agent_responder.provider,
-                        "model": fallback_reply.model,
-                        "prompt_version": fallback_reply.prompt_version,
-                        "bounded_context": True,
-                        "fallback_reason": str(exc),
-                        "referenced_artifact_ids": request.referenced_artifact_ids,
-                    },
-                )
-                self._append_event(record, agent_event)
-                progression = self._evaluate_progression(record)
-                self._append_progression_events(record, progression)
-                return AgentTurnResponse(
-                    session_id=session_id,
-                    status="fallback",
-                    provider=self._fallback_agent_responder.provider,
-                    model=fallback_reply.model,
-                    prompt_version=fallback_reply.prompt_version,
-                    user_event=user_event,
-                    agent_event=agent_event,
-                    progression=progression,
-                )
+        return AgentTurnResponse(
+            session_id=session_id,
+            status=disabled_status,
+            provider=self._agent_responder.provider,
+            prompt_version=self._agent_responder.prompt_version(),
+            user_event=user_event,
+            error=str(exc),
+        )
 
-            return AgentTurnResponse(
-                session_id=session_id,
-                status="failed",
-                provider=self._agent_responder.provider,
-                prompt_version=self._agent_responder.prompt_version(),
-                user_event=user_event,
-                error=str(exc),
-            )
+    def _build_agent_event(
+        self,
+        *,
+        record: SessionRecord,
+        content: str,
+        provider: str,
+        model: str | None,
+        prompt_version: str,
+        referenced_artifact_ids: list[str],
+        timing_ms: dict[str, int] | None = None,
+    ) -> SessionEvent:
+        metadata = {
+            "provider": provider,
+            "model": model,
+            "prompt_version": prompt_version,
+            "bounded_context": True,
+            "referenced_artifact_ids": referenced_artifact_ids,
+        }
+        if timing_ms:
+            metadata["timing_ms"] = timing_ms
+        return self._build_event(
+            record=record,
+            event_type="agent_message",
+            actor="agent",
+            content=content,
+            artifact_id=None,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _apply_rule_fast_path_classification(
+        record: SessionRecord,
+        source_event: SessionEvent,
+    ) -> None:
+        if not source_event.content:
+            return
+        scenario_module = get_scenario_module(record.episode_id)
+        if scenario_module is None:
+            return
+        classification = scenario_module.classify_message(source_event.content)
+        if classification is None:
+            return
+        source_event.metadata.update(
+            {
+                "semantic_classifier": scenario_module.fallback_classifier_version,
+                "semantic_classifier_provider": "scenario_rules",
+                "semantic_classifier_prompt_version": "rule-fast-path",
+                "semantic_classifier_status": "classified",
+                **classification.metadata(),
+            }
+        )
+
+    @staticmethod
+    def _stream_line(event_type: str, **payload: Any) -> str:
+        return json.dumps({"type": event_type, **payload}, default=str) + "\n"
+
+    def _stream_fallback_response(self, response: AgentTurnResponse):
+        content = response.agent_event.content if response.agent_event else response.error
+        if content:
+            yield self._stream_line("replace", text=content)
+        yield self._stream_line("final", response=response.model_dump(mode="json"))
+
+    @staticmethod
+    def _elapsed_ms(started_at: float) -> int:
+        return max(0, round((perf_counter() - started_at) * 1000))
+
+    def _timing_payload(self, started_at: float | None) -> dict[str, int]:
+        if started_at is None:
+            return {}
+        return {"turn_total": self._elapsed_ms(started_at)}
 
     def submit_pre_questionnaire(
         self,
@@ -677,15 +847,28 @@ class EpisodeSessionService:
             1 for event in record.events if event.event_type == "agent_message"
         )
 
-        if not missing:
+        # Terminal branch: the participant has reached a finalized scenario choice
+        # (send as-is, hold for confirmation, etc.). This wins over the curriculum
+        # signal check because the scenario is logically over the moment the
+        # classifier flags any turn as terminal, regardless of whether every
+        # learning signal was hit. Surfacing transition_required here is what lets
+        # the desktop auto-advance to the next scenario across all scenarios that
+        # ship a module-registered classifier.
+        if self._has_terminal_scenario_decision(record, episode):
             return ProgressionDecision(
                 scenario_id=record.episode_id,
                 agent_turn_count=agent_turn_count,
                 target_signals_met=met,
                 target_signals_missing=missing,
+                intervention_type="none",
+                trigger="terminal_scenario_decision",
+                message=config.force_progress_message,
+                transition_required=True,
             )
 
-        if self._has_terminal_scenario_decision(record, episode):
+        # Participants who already satisfied every progression signal keep the
+        # lightweight "no intervention" path (see agent progression tests).
+        if not missing:
             return ProgressionDecision(
                 scenario_id=record.episode_id,
                 agent_turn_count=agent_turn_count,

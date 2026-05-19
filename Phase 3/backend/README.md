@@ -107,6 +107,13 @@ Use `SIMULATOR_LLM_PROVIDER=fixture` for deterministic test completions.
 Use `SIMULATOR_LLM_PROVIDER=gemini`, `SIMULATOR_LLM_API_KEY`, and `SIMULATOR_LLM_MODEL` to call the Gemini Developer API through the native `generateContent` endpoint.
 Use `SIMULATOR_LLM_PROVIDER=chat_completions`, `SIMULATOR_LLM_API_KEY`, `SIMULATOR_LLM_MODEL`, and `SIMULATOR_LLM_BASE_URL` for any provider that exposes a compatible chat-completions API.
 Use the role-specific model variables when you want, for example, a cheaper classifier model and a stronger final grader model.
+LLM roles are disabled by default for offline development. Setting only
+`SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true` keeps the deterministic local
+assistant on, but it does not enable Gemini classification, Gemini assistant
+responses, or final LLM grading. For classifier-only QA with lower token use,
+set `SIMULATOR_LLM_CLASSIFIER_ENABLED=true`,
+`SIMULATOR_LLM_GRADER_ENABLED=false`, and keep
+`SIMULATOR_ASSISTANT_FALLBACK_ENABLED=true`.
 
 For local team testing, prefer the scripts instead of editing `.env` repeatedly:
 

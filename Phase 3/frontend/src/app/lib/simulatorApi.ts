@@ -1,12 +1,40 @@
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
-const API_BASE_URL = configuredApiBaseUrl ?? 'http://localhost:8000/api/v1';
+
+/** Dev default when `VITE_API_BASE_URL` is unset (team convention: backend on 8000). */
+const DEV_DEFAULT_API_BASE = 'http://127.0.0.1:8000/api/v1';
+
+function resolveApiBaseUrl(configuredUrl?: string): string {
+  if (!configuredUrl) {
+    return import.meta.env.DEV ? DEV_DEFAULT_API_BASE : '/api/v1';
+  }
+
+  if (import.meta.env.PROD && typeof window !== 'undefined') {
+    try {
+      const apiUrl = new URL(configuredUrl);
+      if (apiUrl.hostname === window.location.hostname && apiUrl.port === '8000') {
+        return `${window.location.origin}${apiUrl.pathname.replace(/\/$/, '')}`;
+      }
+    } catch {
+      // Relative API paths such as /api/v1 are valid and should pass through.
+    }
+  }
+
+  return configuredUrl;
+}
+
+const API_BASE_URL = resolveApiBaseUrl(configuredApiBaseUrl);
 
 if (import.meta.env.DEV && !configuredApiBaseUrl) {
-  console.warn('VITE_API_BASE_URL is not set. Simulator API calls will use http://localhost:8000/api/v1.');
+  console.warn(
+    `VITE_API_BASE_URL is not set. Simulator API calls will use ${DEV_DEFAULT_API_BASE}. ` +
+      'Set VITE_API_BASE_URL (e.g. in .env.local) if your backend runs on a different host or port.',
+  );
 }
 
 const BACKEND_SESSION_ID_KEY = 'simulator-backend-session-id';
 const BACKEND_PARTICIPANT_EPISODE_KEY = 'simulator-participant-episode';
+const BACKEND_SESSION_STORAGE_VERSION_KEY = 'simulator-backend-session-storage-version';
+const BACKEND_SESSION_STORAGE_VERSION = 'desktop-scenario-order-2026-05-18';
 const DEFAULT_EPISODE_ID = 'q3_budget_summary_v1';
 
 export type SimulatorActor = 'participant' | 'agent' | 'system' | 'evaluator';
@@ -51,6 +79,12 @@ export interface StartSessionPayload {
     industry?: string | null;
     function?: string | null;
     level?: string | null;
+    /** Years in current role bucket (e.g. '1-3', '4-7'). Mirrors the
+     *  first-class `role_duration` field on the backend ParticipantProfile. */
+    role_duration?: string | null;
+    /** Org headcount bucket (e.g. '51-500'). Mirrors the first-class
+     *  `organization_size` field on the backend ParticipantProfile. */
+    organization_size?: string | null;
     ai_relationship_label?: string | null;
     metadata?: Record<string, unknown>;
   };
@@ -117,6 +151,12 @@ export interface PreQuestionnairePayload {
   functional_area?: string | null;
   level?: string | null;
   training_status?: string | null;
+  /** Years in current role bucket. Backend promoted from metadata so research
+   *  exports can read it as a first-class column. */
+  role_duration?: string | null;
+  /** Org headcount bucket. Backend promoted from metadata so research exports
+   *  can read it as a first-class column. */
+  organization_size?: string | null;
   answers?: Array<{
     question_id: string;
     value: string;
@@ -372,6 +412,77 @@ export async function generateAgentTurn(
   });
 }
 
+export async function generateAgentTurnStream(
+  sessionId: string,
+  payload: {
+    message: string;
+    referenced_artifact_ids?: string[];
+    metadata?: Record<string, unknown>;
+  },
+  handlers: {
+    onChunk?: (text: string) => void;
+    onReplace?: (text: string) => void;
+  } = {},
+): Promise<AgentTurnResponse> {
+  const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/agent-turn/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await extractErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  let finalResponse: AgentTurnResponse | null = null;
+  let buffered = '';
+  const decoder = new TextDecoder();
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const event = JSON.parse(trimmed) as
+      | { type: 'chunk'; text?: string }
+      | { type: 'replace'; text?: string }
+      | { type: 'final'; response?: AgentTurnResponse };
+
+    if (event.type === 'chunk' && event.text) {
+      handlers.onChunk?.(event.text);
+    } else if (event.type === 'replace' && typeof event.text === 'string') {
+      handlers.onReplace?.(event.text);
+    } else if (event.type === 'final' && event.response) {
+      finalResponse = event.response;
+    }
+  };
+
+  if (!response.body) {
+    for (const line of (await response.text()).split('\n')) {
+      processLine(line);
+    }
+  } else {
+    const reader = response.body.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      buffered += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      const lines = buffered.split('\n');
+      buffered = lines.pop() ?? '';
+      for (const line of lines) {
+        processLine(line);
+      }
+      if (done) break;
+    }
+    if (buffered.trim()) {
+      processLine(buffered);
+    }
+  }
+
+  if (!finalResponse) {
+    throw new ApiError('Assistant stream ended before a final response arrived.', 502);
+  }
+  return finalResponse;
+}
+
 export async function completeSimulatorSession(
   sessionId: string,
   payload: { reason?: string; final_response?: string | null; metadata?: Record<string, unknown> } = {}
@@ -413,10 +524,16 @@ export function getAdminEventsCsvUrl(): string {
 export function storeSimulatorSessionId(sessionId: string) {
   if (typeof window === 'undefined') return;
   window.sessionStorage.setItem(BACKEND_SESSION_ID_KEY, sessionId);
+  window.sessionStorage.setItem(BACKEND_SESSION_STORAGE_VERSION_KEY, BACKEND_SESSION_STORAGE_VERSION);
 }
 
 export function getStoredSimulatorSessionId(): string | null {
   if (typeof window === 'undefined') return null;
+  const storageVersion = window.sessionStorage.getItem(BACKEND_SESSION_STORAGE_VERSION_KEY);
+  if (storageVersion !== BACKEND_SESSION_STORAGE_VERSION) {
+    clearStoredSimulatorSession();
+    return null;
+  }
   return window.sessionStorage.getItem(BACKEND_SESSION_ID_KEY);
 }
 
@@ -424,6 +541,7 @@ export function clearStoredSimulatorSession() {
   if (typeof window === 'undefined') return;
   window.sessionStorage.removeItem(BACKEND_SESSION_ID_KEY);
   window.sessionStorage.removeItem(BACKEND_PARTICIPANT_EPISODE_KEY);
+  window.sessionStorage.removeItem(BACKEND_SESSION_STORAGE_VERSION_KEY);
 }
 
 export function storeParticipantEpisode(episode: ParticipantEpisode) {

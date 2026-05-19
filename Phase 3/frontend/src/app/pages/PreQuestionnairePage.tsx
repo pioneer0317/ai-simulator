@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Building2, CheckCircle2, ChevronRight, ClipboardList, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
+import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useSimulation, type TrainingStatus } from '../context/SimulationContext';
@@ -21,33 +22,162 @@ type FunctionalArea =
 
 type Level = 'individual-contributor' | 'manager' | 'director' | 'vp-executive' | 'other';
 
+type RoleDuration = 'less-than-1' | '1-3' | '4-7' | '8-15' | 'more-than-15';
+
+type OrganizationSize = 'solo-freelance' | '2-50' | '51-500' | '501-5000' | 'more-than-5000';
+
+interface BaselineOption {
+  id: string;
+  label: string;
+}
+
 interface BaselineQuestion {
   id: string;
   prompt: string;
-  left: string;
-  right: string;
+  options: BaselineOption[];
+  multiSelect?: boolean;
+  hasOther?: boolean;
 }
 
 const baselineQuestions: BaselineQuestion[] = [
   {
-    id: 'verification_orientation',
-    prompt: 'When AI produces a work output, which instinct is closer to yours?',
-    left: 'Use it as a starting point and verify important details.',
-    right: 'Use it if it seems useful and move quickly.',
+    id: 'ai_engagement_level',
+    prompt: 'When you do use AI tools at work, how would you describe your level of engagement with them?',
+    options: [
+      {
+        id: 'passive',
+        label: "I use them passively — I receive outputs but don't actively configure or direct them",
+      },
+      {
+        id: 'task-by-task',
+        label: 'I use them on a task-by-task basis — I give instructions and review what comes back',
+      },
+      {
+        id: 'iterative',
+        label: 'I use them iteratively — I go back and forth with the tool, refining as I go',
+      },
+      {
+        id: 'core-workflow',
+        label: 'I use them as a core part of my workflow — I rely on them regularly to get work done',
+      },
+      {
+        id: 'not-enough',
+        label: "I haven't used AI tools enough to say",
+      },
+    ],
   },
   {
-    id: 'agent_mental_model',
-    prompt: 'How do you usually think about AI systems at work?',
-    left: 'A tool I direct and validate.',
-    right: 'A teammate I collaborate with.',
+    id: 'ai_tools_used',
+    prompt:
+      'Which of the following AI tools have you used in a professional context? (Select all that apply)',
+    multiSelect: true,
+    hasOther: true,
+    options: [
+      {
+        id: 'writing-drafting',
+        label: 'Writing or drafting tools (e.g. grammar checkers, email drafters, report generators)',
+      },
+      {
+        id: 'search-research',
+        label: 'Search or research tools (e.g. AI-powered search, document summarisers)',
+      },
+      {
+        id: 'data-analysis',
+        label: 'Data or analysis tools (e.g. forecasting, dashboards with AI-generated insights)',
+      },
+      {
+        id: 'decision-support',
+        label: 'Decision-support tools (e.g. tools that recommend actions or flag risks)',
+      },
+      {
+        id: 'automation',
+        label:
+          'Automation tools (e.g. tools that complete tasks on your behalf — filing, sending, updating)',
+      },
+      {
+        id: 'conversational-agents',
+        label:
+          'Conversational agents (e.g. chatbots, virtual assistants you have a back-and-forth with)',
+      },
+      {
+        id: 'not-used-professionally',
+        label: 'I have not used AI tools professionally',
+      },
+    ],
   },
   {
-    id: 'uncertainty_style',
-    prompt: 'When the situation is ambiguous, what do you tend to do first?',
-    left: 'Ask for missing context or assumptions.',
-    right: 'Make the best call with what is available.',
+    id: 'ai_relationship',
+    prompt:
+      'When you think about the role AI plays in your work, which of the following feels most like your natural way of relating to it?',
+    options: [
+      { id: 'resource', label: 'A) A resource I draw on to get specific things done' },
+      { id: 'system', label: 'B) A system I work through to complete tasks more efficiently' },
+      { id: 'collaborator', label: 'C) A collaborator I think alongside when working through problems' },
+      { id: 'assistant', label: 'D) An assistant I give direction to and guide toward what I need' },
+    ],
+  },
+  {
+    id: 'conversational_experience',
+    prompt:
+      'When an AI system feels more conversational or human-like in the way it responds, what is your experience of that?',
+    options: [
+      { id: 'unnecessary', label: 'A) I find it unnecessary — I prefer direct, functional responses' },
+      { id: 'no-change', label: "B) It doesn't change much for me either way" },
+      {
+        id: 'easier-natural',
+        label: 'C) It makes the interaction feel easier and more natural to navigate',
+      },
+      {
+        id: 'changes-engagement',
+        label: 'D) It changes how I work with it — I engage more and think through things differently',
+      },
+    ],
   },
 ];
+
+const roleDurationOptions: { value: RoleDuration; label: string }[] = [
+  { value: 'less-than-1', label: 'Less than 1 year' },
+  { value: '1-3', label: '1–3 years' },
+  { value: '4-7', label: '4–7 years' },
+  { value: '8-15', label: '8–15 years' },
+  { value: 'more-than-15', label: 'More than 15 years' },
+];
+
+const organizationSizeOptions: { value: OrganizationSize; label: string }[] = [
+  { value: 'solo-freelance', label: 'Just me / freelance' },
+  { value: '2-50', label: '2–50 people' },
+  { value: '51-500', label: '51–500 people' },
+  { value: '501-5000', label: '501–5,000 people' },
+  { value: 'more-than-5000', label: 'More than 5,000 people' },
+];
+
+function getOptionLabel(question: BaselineQuestion, optionId: string): string {
+  if (optionId === 'other') {
+    return 'Other';
+  }
+  return question.options.find((option) => option.id === optionId)?.label ?? optionId;
+}
+
+function isBaselineQuestionAnswered(
+  question: BaselineQuestion,
+  answers: Record<string, string | string[]>,
+  otherTexts: Record<string, string>
+): boolean {
+  const answer = answers[question.id];
+
+  if (question.multiSelect) {
+    const selected = Array.isArray(answer) ? answer : [];
+    if (selected.length === 0) {
+      return false;
+    }
+    if (selected.includes('other') && !otherTexts[question.id]?.trim()) {
+      return false;
+    }
+    return true;
+  }
+
+  return typeof answer === 'string' && Boolean(answer);
+}
 
 export function PreQuestionnairePage() {
   const navigate = useNavigate();
@@ -61,8 +191,11 @@ export function PreQuestionnairePage() {
 
   const [functionalArea, setFunctionalArea] = useState<FunctionalArea | ''>('');
   const [level, setLevel] = useState<Level | ''>('');
+  const [roleDuration, setRoleDuration] = useState<RoleDuration | ''>('');
+  const [organizationSize, setOrganizationSize] = useState<OrganizationSize | ''>('');
   const [trainingStatusValue, setTrainingStatusValue] = useState<TrainingStatus>('untrained');
-  const [answers, setAnswers] = useState<Record<string, 'left' | 'right'>>({});
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -70,13 +203,76 @@ export function PreQuestionnairePage() {
     () =>
       Boolean(functionalArea) &&
       Boolean(level) &&
-      baselineQuestions.every((question) => answers[question.id]),
-    [answers, functionalArea, level]
+      Boolean(roleDuration) &&
+      Boolean(organizationSize) &&
+      baselineQuestions.every((question) => isBaselineQuestionAnswered(question, answers, otherTexts)),
+    [answers, functionalArea, level, organizationSize, otherTexts, roleDuration]
   );
 
-  const handleAnswer = (questionId: string, value: 'left' | 'right') => {
-    setAnswers((current) => ({ ...current, [questionId]: value }));
+  const handleSingleAnswer = (questionId: string, optionId: string) => {
+    setAnswers((current) => ({ ...current, [questionId]: optionId }));
   };
+
+  const handleMultiAnswer = (questionId: string, optionId: string) => {
+    setAnswers((current) => {
+      const existing = Array.isArray(current[questionId]) ? current[questionId] : [];
+      const next = existing.includes(optionId)
+        ? existing.filter((id) => id !== optionId)
+        : [...existing, optionId];
+      return { ...current, [questionId]: next };
+    });
+  };
+
+  const handleOtherText = (questionId: string, value: string) => {
+    setOtherTexts((current) => ({ ...current, [questionId]: value }));
+  };
+
+  const toggleOtherSelection = (questionId: string) => {
+    setAnswers((current) => {
+      const existing = Array.isArray(current[questionId]) ? current[questionId] : [];
+      const hasOther = existing.includes('other');
+      const next = hasOther ? existing.filter((id) => id !== 'other') : [...existing, 'other'];
+      return { ...current, [questionId]: next };
+    });
+  };
+
+  const buildBaselineSubmissionAnswers = () =>
+    baselineQuestions.map((question) => {
+      const answer = answers[question.id];
+
+      if (question.multiSelect) {
+        const selected = Array.isArray(answer) ? answer : [];
+        const labels = selected.map((optionId) => {
+          if (optionId === 'other') {
+            const otherText = otherTexts[question.id]?.trim();
+            return otherText ? `Other: ${otherText}` : 'Other';
+          }
+          return getOptionLabel(question, optionId);
+        });
+
+        return {
+          question_id: question.id,
+          value: selected.join(','),
+          label: labels.join('; '),
+          metadata: {
+            prompt: question.prompt,
+            selected_option_ids: selected,
+            selected_labels: labels,
+            other_text: otherTexts[question.id]?.trim() || null,
+          },
+        };
+      }
+
+      const optionId = typeof answer === 'string' ? answer : '';
+      return {
+        question_id: question.id,
+        value: optionId,
+        label: getOptionLabel(question, optionId),
+        metadata: {
+          prompt: question.prompt,
+        },
+      };
+    });
 
   const handleContinue = async () => {
     if (!isComplete || isSubmitting) return;
@@ -100,14 +296,19 @@ export function PreQuestionnairePage() {
     });
 
     const completedAt = new Date().toISOString();
+    const aiRelationshipAnswer =
+      typeof answers.ai_relationship === 'string' ? answers.ai_relationship : null;
 
     window.sessionStorage.setItem(
       'ai-simulator-pre-questionnaire',
       JSON.stringify({
         functionalArea,
         level,
+        roleDuration,
+        organizationSize,
         trainingStatus: trainingStatusValue,
         answers,
+        otherTexts,
         completedAt,
       })
     );
@@ -117,10 +318,18 @@ export function PreQuestionnairePage() {
         participant_profile: {
           function: functionalArea,
           level,
-          ai_relationship_label: answers.agent_mental_model ?? null,
+          // Send role_duration / organization_size both as first-class fields
+          // (typed on the backend ParticipantProfile schema for analytics) AND
+          // inside metadata (preserves Katie's original payload shape so any
+          // existing consumers that read metadata.role_duration still work).
+          role_duration: roleDuration,
+          organization_size: organizationSize,
+          ai_relationship_label: aiRelationshipAnswer,
           metadata: {
             training_status: trainingStatusValue,
             questionnaire_source: 'pre_questionnaire_page',
+            role_duration: roleDuration,
+            organization_size: organizationSize,
           },
         },
       });
@@ -138,21 +347,16 @@ export function PreQuestionnairePage() {
         functional_area: functionalArea,
         level,
         training_status: trainingStatusValue,
-        answers: baselineQuestions.map((question) => {
-          const value = answers[question.id];
-          return {
-            question_id: question.id,
-            value,
-            label: value === 'left' ? question.left : question.right,
-            metadata: {
-              prompt: question.prompt,
-              scale_left: question.left,
-              scale_right: question.right,
-            },
-          };
-        }),
+        // Same dual-write as above: first-class fields for analytics, metadata
+        // copy for backward compatibility with any consumer that reads the
+        // pre_questionnaire dict directly.
+        role_duration: roleDuration,
+        organization_size: organizationSize,
+        answers: buildBaselineSubmissionAnswers(),
         metadata: {
           completed_at: completedAt,
+          role_duration: roleDuration,
+          organization_size: organizationSize,
         },
       });
 
@@ -234,6 +438,45 @@ export function PreQuestionnairePage() {
                 </div>
 
                 <div>
+                  <Label className="mb-2 block text-sm text-slate-300">
+                    How long have you been in your current role or industry?
+                  </Label>
+                  <Select value={roleDuration} onValueChange={(value) => setRoleDuration(value as RoleDuration)}>
+                    <SelectTrigger className="border-slate-700 bg-slate-950 text-white">
+                      <SelectValue placeholder="Select duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roleDurationOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="mb-2 block text-sm text-slate-300">
+                    How large is the organisation you work in?
+                  </Label>
+                  <Select
+                    value={organizationSize}
+                    onValueChange={(value) => setOrganizationSize(value as OrganizationSize)}
+                  >
+                    <SelectTrigger className="border-slate-700 bg-slate-950 text-white">
+                      <SelectValue placeholder="Select organisation size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {organizationSizeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
                   <Label className="mb-3 block text-sm text-slate-300">AI training status</Label>
                   <div className="grid grid-cols-2 gap-3">
                     {[
@@ -281,29 +524,66 @@ export function PreQuestionnairePage() {
                       <h3 className="text-base font-bold text-slate-950">{question.prompt}</h3>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {[
-                        { value: 'left' as const, label: question.left },
-                        { value: 'right' as const, label: question.right },
-                      ].map((option) => {
-                        const selected = answers[question.id] === option.value;
+                    <div className="space-y-3">
+                      {question.options.map((option) => {
+                        const answer = answers[question.id];
+                        const selected = question.multiSelect
+                          ? Array.isArray(answer) && answer.includes(option.id)
+                          : answer === option.id;
 
                         return (
                           <button
-                            key={option.value}
+                            key={option.id}
                             type="button"
-                            onClick={() => handleAnswer(question.id, option.value)}
-                            className={`flex min-h-24 items-start gap-3 rounded-xl border p-4 text-left text-sm transition ${
+                            onClick={() =>
+                              question.multiSelect
+                                ? handleMultiAnswer(question.id, option.id)
+                                : handleSingleAnswer(question.id, option.id)
+                            }
+                            className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left text-sm transition ${
                               selected
                                 ? 'border-blue-500 bg-blue-50 text-blue-950'
                                 : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                             }`}
                           >
-                            <CheckCircle2 className={`mt-0.5 h-5 w-5 shrink-0 ${selected ? 'text-blue-600' : 'text-slate-300'}`} />
+                            <CheckCircle2
+                              className={`mt-0.5 h-5 w-5 shrink-0 ${selected ? 'text-blue-600' : 'text-slate-300'}`}
+                            />
                             <span>{option.label}</span>
                           </button>
                         );
                       })}
+
+                      {question.hasOther && (
+                        <div className="rounded-xl border border-slate-200 p-4">
+                          <button
+                            type="button"
+                            onClick={() => toggleOtherSelection(question.id)}
+                            className={`mb-3 flex w-full items-start gap-3 text-left text-sm transition ${
+                              Array.isArray(answers[question.id]) && answers[question.id].includes('other')
+                                ? 'text-blue-950'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            <CheckCircle2
+                              className={`mt-0.5 h-5 w-5 shrink-0 ${
+                                Array.isArray(answers[question.id]) && answers[question.id].includes('other')
+                                  ? 'text-blue-600'
+                                  : 'text-slate-300'
+                              }`}
+                            />
+                            <span>Other: ___________</span>
+                          </button>
+                          {Array.isArray(answers[question.id]) && answers[question.id].includes('other') && (
+                            <Input
+                              value={otherTexts[question.id] ?? ''}
+                              onChange={(event) => handleOtherText(question.id, event.target.value)}
+                              placeholder="Please specify"
+                              className="border-slate-300 bg-white text-slate-950"
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   </section>
                 ))}

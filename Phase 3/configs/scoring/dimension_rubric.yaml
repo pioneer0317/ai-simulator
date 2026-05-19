@@ -4,6 +4,16 @@ description: >
   Deterministic first-pass rubric for embedded enterprise-agent episodes. The
   secondary/fallback LLM grader should explain nuance and suggest rubric improvements,
   not replace this scoring layer.
+
+  Signal sources:
+    - message:         exact-substring keyword match against participant text.
+    - artifact:        match on artifact tags or kinds for artifact_opened events.
+    - event:           match on event_type plus optional metadata fields.
+    - semantic_signal: match on classifier-derived intent tags
+                       (scenario1_matched_signals, scenario2_matched_signals,
+                       scenario_apr_matched_signals, scenario3_matched_signals)
+                       so paraphrased natural
+                       language counts even when keyword signals do not fire.
 dimensions:
   accountability:
     label: Accountability
@@ -43,6 +53,25 @@ dimensions:
           - not my fault
           - blame the ai
           - just send what ai says
+      - id: classifier_owned_corrective_action
+        source: semantic_signal
+        points: 14
+        scenario_signals:
+          - submits_credit_request
+          - contacts_customer
+          - updates_supervisor
+          - documents_root_cause
+          - holds_send_contacts_marcus
+          - owned_missing_dimension_and_corrected
+      - id: classifier_deflected_accountability
+        source: semantic_signal
+        points: -16
+        scenario_signals:
+          - blames_ai
+          - deflects_accountability
+          - waits_for_escalation
+          - apology_without_resolution
+          - blamed_agents_for_incomplete_analysis
 
   instruction_clarity:
     label: Instruction Clarity
@@ -83,6 +112,16 @@ dimensions:
           - do whatever
           - just make it okay
           - you decide
+      - id: classifier_directed_specialist_action
+        source: semantic_signal
+        points: 10
+        scenario_signals:
+          - asked_geographic_scope_of_legal_block
+          - asked_agent_what_happened
+          - asked_what_agent_did_vs_claimed
+          - asks_source_data
+          - requests_adjusted_metrics
+          - surfaces_document_context
 
   evidence_verification:
     label: Evidence Verification
@@ -122,6 +161,17 @@ dimensions:
           - looks fine
           - trust the summary
           - send as is
+      - id: classifier_investigated_evidence
+        source: semantic_signal
+        points: 12
+        scenario_signals:
+          - clarifies_vendor_uncertainty
+          - investigates_conflict
+          - asked_why_portal_step_was_not_flagged
+          - identified_no_further_action_claim_was_wrong
+          - asks_source_data
+          - identifies_medical_leave_context
+          - surfaces_document_context
 
   uncertainty_recognition:
     label: Uncertainty Recognition
@@ -159,6 +209,24 @@ dimensions:
           - certain enough
           - no uncertainty
           - ignore the confidence
+      - id: classifier_acknowledged_uncertainty
+        source: semantic_signal
+        points: 12
+        scenario_signals:
+          - clarifies_vendor_uncertainty
+          - sends_with_vendor_tbc
+          - holds_send_contacts_marcus
+          - verified_agent_explanation_against_policy
+          - identifies_medical_leave_context
+          - uses_document_context
+      - id: classifier_ignored_uncertainty
+        source: semantic_signal
+        points: -12
+        scenario_signals:
+          - sends_anyway_without_caveat
+          - sends_as_is
+          - flags_wrong_uncertainty
+          - did_not_review_agent_actions
 
   trust_calibration:
     label: Trust Calibration
@@ -193,6 +261,25 @@ dimensions:
           - just decide for me
           - i trust you completely
           - no review needed
+      - id: classifier_held_to_verify
+        source: semantic_signal
+        points: 14
+        scenario_signals:
+          - holds_send_contacts_marcus
+          - sends_with_vendor_tbc
+          - investigates_conflict
+          - pushes_back_initial_recommendation
+          - asks_source_data
+          - requests_adjusted_metrics
+      - id: classifier_blind_send
+        source: semantic_signal
+        points: -16
+        scenario_signals:
+          - sends_as_is
+          - sends_anyway_without_caveat
+          - ccs_marcus_without_resolution
+          - accepted_initial_pip
+          - first_answer_anchor
 
   anchoring_persuasion_resistance:
     label: Anchoring / Persuasion Resistance
@@ -220,6 +307,30 @@ dimensions:
           - send it now
           - too late to verify
           - just move fast
+      - id: classifier_resisted_single_anchor
+        source: semantic_signal
+        points: 12
+        scenario_signals:
+          - investigates_conflict
+          - integrates_legal_and_competitive_constraints
+          - conditional_phased_launch
+          - pushes_back_initial_recommendation
+          - asks_source_data
+          - identifies_medical_leave_context
+          - requests_adjusted_metrics
+          - final_independent_judgment
+          - uses_document_context
+      - id: classifier_anchored
+        source: semantic_signal
+        points: -14
+        scenario_signals:
+          - single_agent_anchor
+          - anchors_on_legalguard
+          - anchors_on_productscope
+          - accepted_initial_pip
+          - first_answer_anchor
+          - mirrors_ai_framing
+          - yielded_to_social_proof_pressure
 
   multi_agent_synthesis:
     label: Multi-Agent Synthesis
@@ -246,3 +357,16 @@ dimensions:
           - reconcile
           - compare both
           - conflicting recommendations
+      - id: classifier_synthesized_specialists
+        source: semantic_signal
+        points: 14
+        scenario_signals:
+          - integrates_legal_and_competitive_constraints
+          - conditional_phased_launch
+      - id: classifier_single_agent_anchor
+        source: semantic_signal
+        points: -12
+        scenario_signals:
+          - single_agent_anchor
+          - anchors_on_legalguard
+          - anchors_on_productscope

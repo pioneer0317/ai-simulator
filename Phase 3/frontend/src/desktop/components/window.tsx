@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Minus, Square, X, Folder, HardDrive, File, FileText } from 'lucide-react';
 import type { SimulatorEventType } from '../../app/lib/simulatorApi';
 import type { DesktopMailMessage, DesktopScenarioFile } from '../MacbookDesktop';
+import { DESKTOP_CALENDAR_AGENDA } from '../calendarAgendaData';
+import { JordanMillsReviewPackageView } from './JordanMillsReviewPackageView';
 
 interface WindowProps {
   id: string;
@@ -12,9 +14,16 @@ interface WindowProps {
   onMinimize: () => void;
   onFocus: () => void;
   emailId?: string;
+  conversationId?: string;
   onMaximizeChange?: (maximized: boolean) => void;
   scenarioFiles?: DesktopScenarioFile[];
   mailMessage?: DesktopMailMessage;
+  /**
+   * Optional full inbox. When provided, the mail app shows all of these in the
+   * inbox list. `mailMessage` is still used to seed the focused/default email
+   * for backward compatibility.
+   */
+  inboxEmails?: DesktopMailMessage[];
   workFiles?: string[];
   sentEmails?: Array<{
     id: string;
@@ -31,6 +40,11 @@ interface WindowProps {
     time: string;
     text: string;
   }>;
+  rachelMessages?: Array<{
+    sender: string;
+    time: string;
+    text: string;
+  }>;
   onMarcusConversationViewed?: () => void;
   onTrackEvent?: (
     eventType: SimulatorEventType,
@@ -38,7 +52,18 @@ interface WindowProps {
     content?: string | null,
     artifactId?: string | null
   ) => void;
+  /**
+   * When set (e.g. user opened a Work file from the desktop), Finder jumps to
+   * Work and opens the matching viewer so content is visible immediately.
+   */
+  finderLaunchTarget?: { fileName: string; nonce: number } | null;
+  onFinderLaunchConsumed?: () => void;
 }
+
+/** Desktop → Finder: open Work folder without a document (prototype parity). */
+export const FINDER_LAUNCH_OPEN_WORK = '__OPEN_WORK_FOLDER__';
+/** Desktop → Finder: Documents root (sidebar “Documents” selected). */
+export const FINDER_LAUNCH_DOCUMENTS_ROOT = '__OPEN_DOCUMENTS_ROOT__';
 
 const fallbackMailMessage: DesktopMailMessage = {
   emailId: 'fallback-email',
@@ -59,27 +84,52 @@ function getDefaultWindowSize(app: string): { width: number; height: number } {
   switch (app) {
     case 'mail':
       return { width: 980, height: 640 };
+    case 'finder':
+      return { width: 1120, height: 720 };
     case 'messages':
       return { width: 900, height: 620 };
+    case 'calendar':
+      return { width: 760, height: 640 };
+    case 'hr policy center':
+      return { width: 720, height: 560 };
     default:
       return DEFAULT_WINDOW_SIZE;
   }
 }
 
-export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, workFiles = [], sentEmails = [], onSendEmail, marcusMessages = [], onMarcusConversationViewed, onTrackEvent }: WindowProps) {
+export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, emailId, conversationId, onMaximizeChange, scenarioFiles = [], mailMessage = fallbackMailMessage, inboxEmails, workFiles = [], sentEmails = [], onSendEmail, marcusMessages = [], rachelMessages = [], onMarcusConversationViewed, onTrackEvent, finderLaunchTarget = null, onFinderLaunchConsumed }: WindowProps) {
+  // Effective inbox: full list when caller supplied one, otherwise the single
+  // mailMessage (preserves prior single-email behavior).
+  const effectiveInbox: DesktopMailMessage[] = inboxEmails && inboxEmails.length > 0
+    ? inboxEmails
+    : [mailMessage];
   const [position, setPosition] = useState({ x: Math.random() * 200 + 100, y: Math.random() * 100 + 50 });
   const [size, setSize] = useState(() => getDefaultWindowSize(app));
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [finderSearchQuery, setFinderSearchQuery] = useState('');
   const [openDocument, setOpenDocument] = useState<string | null>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [replyTo, setReplyTo] = useState('');
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<'inbox' | 'sent'>('inbox');
-  const [selectedChannel, setSelectedChannel] = useState<string>('general');
+  const [selectedChannel, setSelectedChannel] = useState<string>(conversationId || 'general');
+  // Re-target the messages app when the desktop pushes a new conversationId
+  // (e.g. when the user clicks the Rachel Kim notification in APR).
+  useEffect(() => {
+    if (conversationId) setSelectedChannel(conversationId);
+  }, [conversationId]);
+  const [selectedInboxEmailId, setSelectedInboxEmailId] = useState<string>(() => emailId || effectiveInbox[0]?.emailId || mailMessage.emailId);
+  // Keep the selected inbox email in sync when the desktop pushes a new emailId
+  // (e.g. when the user clicks an email notification).
+  useEffect(() => {
+    if (emailId) setSelectedInboxEmailId(emailId);
+  }, [emailId]);
+  const selectedInboxEmail: DesktopMailMessage =
+    effectiveInbox.find((e) => e.emailId === selectedInboxEmailId) || effectiveInbox[0] || mailMessage;
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<string>('');
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
@@ -180,6 +230,102 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
       };
     }
   }, [isDragging, isResizing, dragStart, resizeStart, resizeDirection, position, size]);
+
+  const openWorkFileInFinder = useCallback(
+    (fileName: string, track: 'finder' | 'none') => {
+      if (!workFiles.includes(fileName)) return;
+      setCurrentFolder('Work');
+      const isExcel = fileName.endsWith('.xlsx');
+      const isPdf = fileName.endsWith('.pdf');
+      const isText = fileName.endsWith('.txt');
+      const scenarioFile = scenarioFiles.find((file) => file.fileName === fileName);
+      const backendArtifactId =
+        scenarioFile?.metadata.backend_artifact === false ? null : scenarioFile?.artifactId;
+
+      if (track !== 'none') {
+        onTrackEvent?.(
+          'artifact_opened',
+          {
+            source: 'finder',
+            artifact_kind: isExcel ? 'spreadsheet' : isPdf ? 'pdf' : isText ? 'document' : 'document',
+            file_name: fileName,
+            artifact_id: backendArtifactId,
+          },
+          null,
+          backendArtifactId,
+        );
+      }
+
+      if (scenarioFile) {
+        setOpenDocument(fileName);
+      } else if (fileName === 'Q2 Budget Proposal.docx') {
+        setOpenDocument('word');
+      } else if (fileName === 'Budget Estimation Draft.xlsx') {
+        setOpenDocument('excel');
+      } else if (fileName === 'Q2_Budget_Final.xlsx') {
+        setOpenDocument('final-budget');
+      }
+    },
+    [scenarioFiles, workFiles, onTrackEvent],
+  );
+
+  const applyFinderSearchEnter = useCallback(() => {
+    const q = finderSearchQuery.trim().toLowerCase();
+    if (!q) return;
+    if (q === 'work' || q === 'work folder') {
+      setCurrentFolder('Work');
+      setOpenDocument(null);
+      setFinderSearchQuery('');
+      return;
+    }
+    const ranked = workFiles.filter((f) => f.toLowerCase().includes(q));
+    if (ranked.length === 0) return;
+    const pick =
+      (q === 'pdf' ? ranked.find((f) => f.toLowerCase().endsWith('.pdf')) : undefined) ??
+      ranked.find((f) => f.toLowerCase().endsWith('.pdf') && q.includes('pdf')) ??
+      ranked[0];
+    openWorkFileInFinder(pick, 'finder');
+    setFinderSearchQuery('');
+  }, [finderSearchQuery, workFiles, openWorkFileInFinder]);
+
+  const finderSearchBar = (
+    <div className="mb-3">
+      <label className="sr-only" htmlFor={`finder-search-${id}`}>
+        Search files
+      </label>
+      <input
+        id={`finder-search-${id}`}
+        type="search"
+        value={finderSearchQuery}
+        onChange={(e) => setFinderSearchQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            applyFinderSearchEnter();
+          }
+        }}
+        placeholder="Search files… (try pdf, jordan, deadline)"
+        className="w-full max-w-md rounded border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+      />
+    </div>
+  );
+
+  useEffect(() => {
+    if (app !== 'finder' || !finderLaunchTarget) return;
+    const { fileName } = finderLaunchTarget;
+    if (fileName === FINDER_LAUNCH_OPEN_WORK) {
+      setCurrentFolder('Work');
+      setOpenDocument(null);
+      setFinderSearchQuery('');
+    } else if (fileName === FINDER_LAUNCH_DOCUMENTS_ROOT) {
+      setCurrentFolder(null);
+      setOpenDocument(null);
+      setFinderSearchQuery('');
+    } else {
+      openWorkFileInFinder(fileName, 'none');
+    }
+    onFinderLaunchConsumed?.();
+  }, [app, finderLaunchTarget, openWorkFileInFinder, onFinderLaunchConsumed]);
 
   const renderContent = () => {
     if (app === 'finder') {
@@ -434,37 +580,22 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                   <span>›</span>
                   <span className="font-medium">Work</span>
                 </div>
+                {finderSearchBar}
                 <div className="grid grid-cols-4 gap-4">
 	                  {workFiles.map((fileName, index) => {
 	                    const isWord = fileName.endsWith('.docx');
 	                    const isExcel = fileName.endsWith('.xlsx');
 	                    const isText = fileName.endsWith('.txt');
 	                    const isPdf = fileName.endsWith('.pdf');
-	                    const isFinalBudget = fileName === 'Q2_Budget_Final.xlsx';
 	                    const scenarioFile = scenarioFiles.find((file) => file.fileName === fileName);
-                      const backendArtifactId = scenarioFile?.metadata.backend_artifact === false ? null : scenarioFile?.artifactId;
 
 	                    return (
                       <div
                         key={index}
                         onClick={() => {
-                          onTrackEvent?.('artifact_opened', {
-	                            source: 'finder',
-	                            artifact_kind: isExcel ? 'spreadsheet' : isPdf ? 'pdf' : 'document',
-	                            file_name: fileName,
-	                            artifact_id: backendArtifactId,
-	                          }, null, backendArtifactId);
-	                          if (scenarioFile) {
-	                            setOpenDocument(fileName);
-	                          } else if (fileName === 'Q2 Budget Proposal.docx') {
-	                            setOpenDocument('word');
-	                          } else if (fileName === 'Budget Estimation Draft.xlsx') {
-                            setOpenDocument('excel');
-                          } else if (isFinalBudget) {
-                            setOpenDocument('final-budget');
-                          }
+                          openWorkFileInFinder(fileName, 'finder');
                         }}
-                        className="flex flex-col items-center gap-2 p-2 hover:bg-blue-100 rounded cursor-pointer"
+                        className="flex w-full min-w-0 flex-col items-center gap-2 p-2 hover:bg-blue-100 rounded cursor-pointer"
                       >
                         <div className="relative w-12 h-12">
                           <svg viewBox="0 0 48 48" className="w-full h-full drop-shadow-sm">
@@ -492,25 +623,18 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                             )}
                           </svg>
                         </div>
-                        <span className="text-xs text-center leading-tight h-8">
-	                          {fileName.replace('.docx', '').replace('.xlsx', '').replace('.txt', '').replace('.pdf', '').split(' ').map((word, i, arr) => (
-                            <span key={i}>
-                              {word}
-                              {i < arr.length - 1 && i % 2 === 1 ? <br /> : ' '}
-                            </span>
-                          ))}
-	                          {isWord && '.docx'}
-	                          {isExcel && '.xlsx'}
-	                          {isText && '.txt'}
-                            {isPdf && '.pdf'}
-	                        </span>
+                        <span className="w-full min-h-8 text-xs text-center leading-tight break-all">
+                          {fileName}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-4 gap-4">
+              <div>
+                {finderSearchBar}
+                <div className="grid grid-cols-4 gap-4">
                 {/* Folders */}
                 {['Project Files', 'Images', 'Videos', 'Music', 'Work', 'Personal'].map((name, i) => (
                   <div
@@ -531,6 +655,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                     <span className="text-xs text-center">{name}</span>
                   </div>
                 ))}
+                </div>
               </div>
             )}
           </div>
@@ -560,7 +685,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                 } rounded cursor-pointer text-sm font-medium flex items-center justify-between`}
               >
 	                <span>Inbox</span>
-	                <span className={`text-xs ${selectedFolder === 'inbox' ? 'bg-white/20' : 'bg-gray-300'} px-1.5 py-0.5 rounded`}>1</span>
+	                <span className={`text-xs ${selectedFolder === 'inbox' ? 'bg-white/20' : 'bg-gray-300'} px-1.5 py-0.5 rounded`}>{effectiveInbox.length}</span>
               </div>
               <div
                 onClick={() => {
@@ -589,18 +714,33 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 
           {/* Email List */}
           <div className="w-64 bg-white/95 border-r border-gray-300 overflow-y-auto">
-	            {selectedFolder === 'inbox' && (
-	              <div className="border-b border-gray-300 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors">
-	                <div className="p-3">
-	                  <div className="flex items-start justify-between mb-1">
-	                    <span className="font-semibold text-sm text-gray-900">{mailMessage.senderName}</span>
-	                    <span className="text-xs text-gray-500">{mailMessage.time}</span>
+	            {selectedFolder === 'inbox' && effectiveInbox.map((email) => {
+	              const isSelected = email.emailId === selectedInboxEmailId;
+	              return (
+	                <div
+	                  key={email.emailId}
+	                  onClick={() => {
+	                    setSelectedInboxEmailId(email.emailId);
+	                    onTrackEvent?.('artifact_opened', {
+	                      source: 'mail_inbox_item',
+	                      artifact_kind: 'email',
+	                    }, null, email.emailId);
+	                  }}
+	                  className={`border-b border-gray-300 cursor-pointer transition-colors ${
+	                    isSelected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'
+	                  }`}
+	                >
+	                  <div className="p-3">
+	                    <div className="flex items-start justify-between mb-1">
+	                      <span className="font-semibold text-sm text-gray-900">{email.senderName}</span>
+	                      <span className="text-xs text-gray-500">{email.time}</span>
+	                    </div>
+	                    <div className="text-sm font-medium text-gray-800 mb-1">{email.subject}</div>
+	                    <div className="text-xs text-gray-600 line-clamp-2">{email.preview}</div>
 	                  </div>
-	                  <div className="text-sm font-medium text-gray-800 mb-1">{mailMessage.subject}</div>
-	                  <div className="text-xs text-gray-600 line-clamp-2">{mailMessage.preview}</div>
 	                </div>
-	              </div>
-            )}
+	              );
+	            })}
             {selectedFolder === 'sent' && sentEmails.map((email) => (
               <div key={email.id} className="border-b border-gray-300 hover:bg-blue-50 cursor-pointer transition-colors">
                 <div className="p-3">
@@ -690,29 +830,29 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                   </button>
                 </div>
               </div>
-	            ) : selectedFolder === 'inbox' && (emailId === mailMessage.emailId || true) ? (
+	            ) : selectedFolder === 'inbox' ? (
 	              <div className="p-6 flex flex-col h-full">
 	                <div className="flex-1 overflow-y-auto">
 	                  <div className="mb-6">
-	                    <h2 className="text-xl font-semibold text-gray-900 mb-3">{mailMessage.subject}</h2>
+	                    <h2 className="text-xl font-semibold text-gray-900 mb-3">{selectedInboxEmail.subject}</h2>
 	                    <div className="flex items-center gap-3 mb-4">
 	                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold shadow-sm">
-	                        {mailMessage.senderInitials}
+	                        {selectedInboxEmail.senderInitials}
 	                      </div>
 	                      <div>
-	                        <div className="font-medium text-gray-900">{mailMessage.senderName}</div>
-	                        <div className="text-sm text-gray-600">{mailMessage.senderEmail}</div>
+	                        <div className="font-medium text-gray-900">{selectedInboxEmail.senderName}</div>
+	                        <div className="text-sm text-gray-600">{selectedInboxEmail.senderEmail}</div>
 	                      </div>
 	                    </div>
 	                    <div className="text-xs text-gray-500 mb-1">To: me</div>
-	                    <div className="text-xs text-gray-500">{mailMessage.time}</div>
+	                    <div className="text-xs text-gray-500">{selectedInboxEmail.time}</div>
 	                  </div>
 
 	                  <div className="prose prose-sm max-w-none">
-	                    <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{mailMessage.body}</p>
+	                    <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{selectedInboxEmail.body}</p>
 	                    <div className="text-xs text-gray-500 mt-6 pt-4 border-t border-gray-200">
-	                      <p className="font-semibold">{mailMessage.senderName}</p>
-	                      <p>{mailMessage.senderEmail}</p>
+	                      <p className="font-semibold">{selectedInboxEmail.senderName}</p>
+	                      <p>{selectedInboxEmail.senderEmail}</p>
 	                    </div>
 	                  </div>
                 </div>
@@ -723,12 +863,12 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                       onTrackEvent?.('app_opened', {
 	                        source: 'mail_reply_button',
 	                        action: 'compose_reply',
-	                        to: mailMessage.replyTo,
-	                        subject: mailMessage.replySubject,
+	                        to: selectedInboxEmail.replyTo,
+	                        subject: selectedInboxEmail.replySubject,
 	                      });
 	                      setIsComposing(true);
-	                      setReplyTo(mailMessage.replyTo);
-	                      setReplySubject(mailMessage.replySubject);
+	                      setReplyTo(selectedInboxEmail.replyTo);
+	                      setReplySubject(selectedInboxEmail.replySubject);
                       setReplyBody('');
                     }}
                     className="px-6 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
@@ -793,6 +933,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
 
       const directMessages = [
         { id: 'sarah', name: 'Sarah Chen', status: 'online', unread: 1 },
+        ...(rachelMessages.length > 0 ? [{ id: 'rachel', name: 'Rachel Kim', status: 'online', unread: 1 }] : []),
         { id: 'mike', name: 'Mike Johnson', status: 'away', unread: 0 },
         { id: 'emma', name: 'Emma Wilson', status: 'online', unread: 0 },
         ...(marcusMessages.length > 0 ? [{ id: 'marcus', name: 'Marcus Webb', status: 'online', unread: 0 }] : [])
@@ -830,6 +971,7 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
           { sender: 'Emma Wilson', time: 'Tuesday', text: 'Thanks for helping with the deployment yesterday!' },
           { sender: 'You', time: 'Tuesday', text: 'No problem! Happy to help.' }
         ],
+        'rachel': rachelMessages,
         'marcus': marcusMessages
       };
 
@@ -971,6 +1113,118 @@ export function Window({ id, title, app, zIndex, onClose, onMinimize, onFocus, e
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (app === 'calendar') {
+      const today = new Date();
+      const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
+      const monthDay = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const tasks = DESKTOP_CALENDAR_AGENDA;
+
+      return (
+        <div className="flex flex-col h-full bg-white/95">
+          <div className="border-b border-gray-300 px-6 py-4 bg-gradient-to-r from-indigo-50 to-purple-50">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-900">{dayName}</h2>
+                <p className="text-sm text-gray-600 mt-0.5">{monthDay}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">Today</button>
+                <button className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">+ New Event</button>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-white">
+            <div className="p-6">
+              <div className="mb-4 flex items-center gap-2 text-sm text-gray-500">
+                <div className="w-2 h-2 bg-indigo-600 rounded-full animate-pulse"></div>
+                <span>Current time: {today.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+              </div>
+              <div className="space-y-3">
+                {tasks.length === 0 ? (
+                  <div className="py-12 text-center text-gray-500">
+                    <div className="mb-2 text-4xl">📅</div>
+                    <p>No events scheduled for today</p>
+                  </div>
+                ) : (
+                  tasks.map((task, index) => (
+                    <div
+                      key={index}
+                      className={`flex cursor-pointer gap-4 rounded-lg border-l-4 p-4 transition-all hover:shadow-md ${task.color}`}
+                    >
+                      <div className="w-20 shrink-0 text-sm font-semibold text-gray-700">{task.time}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-gray-900">{task.title}</h3>
+                          {task.type === 'deadline' && (
+                            <span className="rounded bg-red-500 px-2 py-0.5 text-xs font-medium text-white">DEADLINE</span>
+                          )}
+                          {task.type === 'meeting' && (
+                            <span className="rounded bg-blue-500 px-2 py-0.5 text-xs font-medium text-white">MEETING</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600">{task.description}</p>
+                      </div>
+                      <button type="button" className="shrink-0 self-start text-gray-400 hover:text-gray-600" aria-label="Event options">
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (app === 'hr policy center') {
+      return (
+        <div className="flex flex-col h-full bg-white/95">
+          <div className="border-b border-gray-300 px-6 py-4 bg-gradient-to-r from-green-50 to-emerald-50">
+            <h2 className="text-xl font-semibold text-gray-900">Performance Review Guidelines</h2>
+            <p className="text-sm text-gray-600 mt-1">HR Policy Center</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-8">
+            <div className="max-w-3xl mx-auto">
+              <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="flex-shrink-0 w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 mb-1">Quarterly Performance Reviews</h3>
+                    <p className="text-sm text-gray-600">Essential policy guidance for managers</p>
+                  </div>
+                </div>
+                <div className="border-t border-gray-200 pt-4">
+                  <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                    Managers should consider <span className="font-semibold">both quantitative metrics and documented qualitative contributions</span> when assigning ratings.
+                  </p>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    <span className="font-semibold">Approved leave periods should be excluded or contextualized</span> when interpreting productivity metrics.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-5">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-sm text-gray-700">
+                    For questions about performance review policies, contact HR Support at hr-support@company.com
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1125,6 +1379,18 @@ function renderScenarioFile(file: DesktopScenarioFile, onBack: () => void) {
     return renderQ3BudgetTrackerFile(file, onBack);
   }
 
+  if (file.artifactId === 'jordan_mills_q3_review_package' || file.fileName === 'Jordan_Mills_Q3_Review_Package.pdf') {
+    return <JordanMillsReviewPackageView onBack={onBack} />;
+  }
+
+  if (file.artifactId === 'case_48291_account_history') {
+    return renderScenario2CaseHistoryFile(file, onBack);
+  }
+
+  if (file.artifactId === 'customer_credit_policy_v4') {
+    return renderScenario2CreditPolicyFile(file, onBack);
+  }
+
   const isStructuredData = file.kind === 'dashboard' || file.kind === 'data_table';
   return (
     <div className="flex h-full flex-col bg-white/95">
@@ -1163,6 +1429,230 @@ function renderScenarioFile(file: DesktopScenarioFile, onBack: () => void) {
                   {tag}
                 </span>
               ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderScenario2CaseHistoryFile(file: DesktopScenarioFile, onBack: () => void) {
+  const details = [
+    ['Customer', 'Ahmed Patel'],
+    ['Account #', '00847291'],
+    ['Customer since', '6 years'],
+    ['Account standing', 'Good standing. No prior disputes. Payment history is consistent.'],
+    ['Prior credits', '$15 adjustment for a service outage 14 months ago, approved at CSR level.'],
+  ];
+
+  return (
+    <div className="flex h-full flex-col bg-white/95">
+      <div className="flex items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700"
+        >
+          <span>←</span> Back to Work
+        </button>
+        <span className="text-sm font-medium text-gray-700">{file.fileName}</span>
+        <div className="w-20" />
+      </div>
+      <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+        <div className="mx-auto max-w-5xl rounded-lg border border-gray-200 bg-white shadow-md">
+          <div className="border-b border-gray-200 p-8">
+            <div className="mb-5 flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-slate-700 text-white">
+                <FileText className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-950">Case #48291 - Account History</h1>
+                <p className="mt-1 text-sm text-gray-500">{file.summary}</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+              <span className="font-semibold">Current state:</span> The case note says the $60 credit was submitted, but there is no corresponding credit request in the system.
+            </div>
+          </div>
+
+          <div className="grid gap-6 p-8 lg:grid-cols-[1fr_1.2fr]">
+            <section>
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Account details</h2>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                {details.map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-[150px_1fr] border-b border-gray-200 last:border-b-0">
+                    <div className="bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">{label}</div>
+                    <div className="px-4 py-3 text-sm text-gray-900">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div>
+                <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Complaint logged</h2>
+                <p className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm leading-relaxed text-gray-800">
+                  Ahmed reported being charged twice for the same billing period. A $60 charge appears twice on his monthly statement.
+                </p>
+              </div>
+              <div>
+                <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Submitted case note</h2>
+                <blockquote className="rounded-lg border-l-4 border-slate-400 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-gray-800">
+                  Customer contacted regarding duplicate charge of $60. Account reviewed and duplicate confirmed. Credit of $60 approved and submitted. Customer advised credit will appear within 5 business days. Case resolved.
+                </blockquote>
+              </div>
+            </section>
+
+            <section className="space-y-4 lg:col-span-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-5">
+                <h2 className="mb-2 text-base font-bold text-amber-950">System check</h2>
+                <p className="text-sm leading-relaxed text-amber-950">
+                  The note was submitted; the credit was not. No Credit Request Portal submission was filed, so the $60 credit does not exist in the system.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-gray-200 bg-white p-5">
+                  <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Automated email</h2>
+                  <p className="text-sm leading-relaxed text-gray-800">
+                    The system sent Ahmed a confirmation based on the case note text: his $60 credit had been approved and would appear within 5 business days.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-white p-5">
+                  <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Customer impact</h2>
+                  <p className="text-sm leading-relaxed text-gray-800">
+                    Ahmed has waited two weeks for a credit that was never actually requested or approved.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {file.tags.length > 0 && (
+            <div className="border-t border-gray-200 px-8 py-5">
+              <div className="flex flex-wrap gap-2">
+                {file.tags.map((tag) => (
+                  <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderScenario2CreditPolicyFile(file: DesktopScenarioFile, onBack: () => void) {
+  const approvalRows = [
+    ['Up to $50', 'CSR may approve and submit directly', 'Credit Request Portal'],
+    ['$51-$200', 'Team Lead approval required', 'CSR submits request; Team Lead reviews before credit applies'],
+    ['Over $200', 'Manager-level sign-off and formal review', 'Not applicable to Case #48291'],
+  ];
+  const issueSteps = [
+    'CSR submits a Credit Request through the Credit Request Portal.',
+    'Team Lead receives a notification and reviews the request.',
+    'Team Lead approves or denies.',
+    'If approved, the credit is applied to the account automatically.',
+    'Customer receives a second confirmation when the credit posts.',
+  ];
+
+  return (
+    <div className="flex h-full flex-col bg-white/95">
+      <div className="flex items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700"
+        >
+          <span>←</span> Back to Work
+        </button>
+        <span className="text-sm font-medium text-gray-700">{file.fileName}</span>
+        <div className="w-20" />
+      </div>
+      <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+        <div className="mx-auto max-w-5xl rounded-lg border border-gray-200 bg-white shadow-md">
+          <div className="border-b border-gray-200 p-8">
+            <div className="mb-5 flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-700 text-white">
+                <FileText className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-950">Customer Credit Policy v4</h1>
+                <p className="mt-1 text-sm text-gray-500">{file.summary}</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-relaxed text-blue-950">
+              A credit is a refund applied to a customer's account. Credits are not automatic; they must be requested, approved, and submitted through the credit portal.
+            </div>
+          </div>
+
+          <div className="space-y-7 p-8">
+            <section>
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Approval thresholds</h2>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-gray-100 text-left text-gray-700">
+                    <tr>
+                      <th className="border-b border-gray-200 px-4 py-3 font-semibold">Credit amount</th>
+                      <th className="border-b border-gray-200 px-4 py-3 font-semibold">Approval rule</th>
+                      <th className="border-b border-gray-200 px-4 py-3 font-semibold">Required action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {approvalRows.map(([amount, rule, action]) => (
+                      <tr key={amount} className={amount === '$51-$200' ? 'bg-amber-50' : 'bg-white'}>
+                        <td className="border-b border-gray-200 px-4 py-3 font-semibold text-gray-900">{amount}</td>
+                        <td className="border-b border-gray-200 px-4 py-3 text-gray-800">{rule}</td>
+                        <td className="border-b border-gray-200 px-4 py-3 text-gray-800">{action}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+              <div>
+                <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">How a credit is issued</h2>
+                <ol className="space-y-3">
+                  {issueSteps.map((step, index) => (
+                    <li key={step} className="flex gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-xs font-bold text-white">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm leading-relaxed text-gray-800">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-lg border border-red-200 bg-red-50 p-5">
+                  <h2 className="mb-2 text-base font-bold text-red-950">Critical rule</h2>
+                  <p className="text-sm leading-relaxed text-red-950">
+                    A case note alone does not issue a credit. The portal request is required.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-5">
+                  <h2 className="mb-2 text-base font-bold text-amber-950">What went wrong in Case #48291</h2>
+                  <p className="text-sm leading-relaxed text-amber-950">
+                    The case note said the $60 credit was approved and submitted. In reality, no Credit Request Portal submission was made, no Team Lead approval was sought, and the credit does not exist in the system.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {file.tags.length > 0 && (
+            <div className="border-t border-gray-200 px-8 py-5">
+              <div className="flex flex-wrap gap-2">
+                {file.tags.map((tag) => (
+                  <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>

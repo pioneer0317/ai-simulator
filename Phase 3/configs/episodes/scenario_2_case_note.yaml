@@ -1,5 +1,5 @@
 episode_id: scenario_2_case_note_v1
-title: Accountability - The Case Note
+title: SCN-2-ACC - The Case Note
 description: >
   Finalized Scenario 2 accountability episode. A customer service representative
   used an AI assistant to draft and submit a case note saying a $60 customer
@@ -348,15 +348,15 @@ progression:
   target_signals:
     - source_artifact_opened
     - user_asked_for_comparison
-  soft_nudge_after_agent_turns: 2
-  strong_nudge_after_agent_turns: 4
-  force_progress_after_agent_turns: 5
+  soft_nudge_after_agent_turns: 3
+  strong_nudge_after_agent_turns: 5
+  force_progress_after_agent_turns: 7
   soft_nudge_message: >
-    You may want to compare the submitted case note with the credit policy
-    before replying to Dana or Ahmed.
+    Open the case record or credit policy before replying to Dana or Ahmed.
   strong_nudge_message: >
-    Before moving forward, review the case record and policy, then decide who
-    needs to be informed and what corrective action must happen first.
+    Suggested options: compare the submitted case note with the policy, ask what
+    was actually filed, submit the credit request, or draft updates for Ahmed
+    and Dana.
   force_progress_message: >
     Dana needs an update today. The simulation is ready to move forward based
     on the information available so far.
@@ -390,7 +390,9 @@ agent_response_contract:
     participant that the customer follow-up should be owned by the person who
     submitted the note and sent the confirmation.
 metadata:
+  scenario_code: SCN-2-ACC
+  naming_convention: Accountability
   scenario_folder: scenario-2
   finalized_source: resources/scenarios/[finalized] Scenario2_Accountability_TheCaseNote_v3.pdf
   scoring_model: scenario2-accountability-finalized-v1
-  source_pdf_title: "Scenario 2: Accountability - The Case Note"
+  source_pdf_title: "SCN-2-ACC - Accountability - The Case Note"

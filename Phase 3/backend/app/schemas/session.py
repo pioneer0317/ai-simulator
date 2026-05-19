@@ -18,6 +18,11 @@ class ParticipantProfile(BaseModel):
     industry: str | None = None
     function: str | None = None
     level: str | None = None
+    # Promoted from `metadata` so analytics can query without parsing JSON.
+    # Older clients that send these values inside `metadata` continue to work
+    # because both shapes round-trip through the same dict in storage.
+    role_duration: str | None = None
+    organization_size: str | None = None
     ai_relationship_label: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -37,6 +42,11 @@ class PreQuestionnaireSubmissionRequest(BaseModel):
     functional_area: str | None = None
     level: str | None = None
     training_status: str | None = None
+    # Promoted from `metadata` so research exports can read role tenure and
+    # organisation size as first-class columns. Optional with `None` defaults
+    # so submissions that still tuck them into `metadata` keep working.
+    role_duration: str | None = None
+    organization_size: str | None = None
     answers: list[PreQuestionnaireAnswer] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

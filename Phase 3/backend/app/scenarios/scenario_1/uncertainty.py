@@ -141,6 +141,31 @@ def _has_any(text: str, terms: tuple[str, ...]) -> bool:
 
 
 def _send_intent(text: str) -> bool:
+    if _has_any(
+        text,
+        (
+            "what should",
+            "should i",
+            "should we",
+            "can you check",
+            "could you check",
+            "before i send",
+            "before we send",
+            "before sending",
+            "before i submit",
+            "before we submit",
+            "i want to understand",
+            "want to understand",
+            "help me understand",
+            "what is not confirmed",
+            "whats not confirmed",
+            "what isnt confirmed",
+            "what is still being confirmed",
+            "what is not final",
+        ),
+    ):
+        return False
+
     exact_affirmations = {
         "looks good",
         "look good",
@@ -153,7 +178,26 @@ def _send_intent(text: str) -> bool:
         "sure",
         "go ahead",
         "do it",
+        "proceed",
+        "approved",
+        "good to go",
     }
+    action_terms = ("send", "submit", "forward", "email", "share")
+    approval_terms = (
+        "approve",
+        "approved",
+        "proceed",
+        "move forward",
+        "go ahead",
+        "finalize",
+        "use this",
+        "good to go",
+        "works for me",
+        "current version",
+        "current draft",
+        "current summary",
+    )
+    object_terms = ("it", "this", "summary", "draft", "version", "email", "priya")
     return (
         text in exact_affirmations
         or _has_any(
@@ -168,12 +212,26 @@ def _send_intent(text: str) -> bool:
                 "this is what we have",
             ),
         )
+        or (_has_any(text, action_terms) and _has_any(text, object_terms))
+        or (_has_any(text, approval_terms) and _has_any(text, object_terms))
     )
 
 
 def _asks_vendor_uncertainty(text: str) -> bool:
     asks_about_hedge = _has_any(text, ("may shift", "number may shift", "what does that mean"))
     asks_about_vendor = _has_any(text, ("vendor", "contractor", "outside contractor", "nexus", "marcus"))
+    asks_generic_uncertainty = _has_any(
+        text,
+        (
+            "what is not confirmed",
+            "whats not confirmed",
+            "what isnt confirmed",
+            "not confirmed here",
+            "what is still being confirmed",
+            "what is not final",
+            "which line is not confirmed",
+        ),
+    )
     asks_about_uncertainty = _has_any(
         text,
         (
@@ -191,7 +249,7 @@ def _asks_vendor_uncertainty(text: str) -> bool:
             "what is unresolved",
         ),
     )
-    return asks_about_hedge or (asks_about_vendor and asks_about_uncertainty)
+    return asks_about_hedge or asks_generic_uncertainty or (asks_about_vendor and asks_about_uncertainty)
 
 
 def _holds_send_for_marcus(text: str) -> bool:
@@ -216,10 +274,30 @@ def _catches_but_sends_anyway(text: str) -> bool:
 
 
 def _flags_software_instead(text: str) -> bool:
-    return _send_intent(text) and _has_any(text, ("software", "license", "licenses", "it renewal")) and _has_any(
+    mentions_software_line = _has_any(
         text,
-        ("estimate", "pending", "note", "caveat", "not final", "confirmation"),
+        ("software", "license", "licenses", "it renewal", "it confirmation", "confirmed by it"),
     )
+    adds_or_flags_note = _send_intent(text) or _has_any(
+        text,
+        ("add a note", "note that", "flag", "mark", "mention", "include"),
+    )
+    mentions_uncertainty = _has_any(
+        text,
+        (
+            "estimate",
+            "pending",
+            "note",
+            "caveat",
+            "not final",
+            "not confirmed",
+            "confirmation",
+            "confirmed by it",
+            "being confirmed",
+            "still being confirmed",
+        ),
+    )
+    return mentions_software_line and adds_or_flags_note and mentions_uncertainty
 
 
 def _ccs_marcus_without_pause(text: str) -> bool:

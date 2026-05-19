@@ -56,7 +56,12 @@ class ScenarioFallbackAgentResponder:
         if scenario_module is not None:
             classification = scenario_module.classify_message(latest_user_message)
             if classification is not None:
-                reply = scenario_module.fallback_reply(classification)
+                stateful_reply = getattr(scenario_module, "fallback_reply_for_events", None)
+                reply = (
+                    stateful_reply(classification, events)
+                    if callable(stateful_reply)
+                    else scenario_module.fallback_reply(classification)
+                )
                 if reply is not None:
                     return FallbackAgentReply(text=reply)
 

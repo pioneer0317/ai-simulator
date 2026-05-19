@@ -1,5 +1,5 @@
 episode_id: q3_budget_summary_v1
-title: Q3 Budget Summary for Priya
+title: SCN-1-UR - Q3 Budget Summary for Priya
 description: >
   Finalized Scenario 1 uncertainty-recognition episode. The participant works
   with an AI assistant to prepare a Q3 department budget summary while deciding
@@ -175,15 +175,14 @@ progression:
   target_signals:
     - source_artifact_opened
     - user_asked_for_comparison
-  soft_nudge_after_agent_turns: 2
-  strong_nudge_after_agent_turns: 4
-  force_progress_after_agent_turns: 5
+  soft_nudge_after_agent_turns: 3
+  strong_nudge_after_agent_turns: 5
+  force_progress_after_agent_turns: 7
   soft_nudge_message: >
-    You may want to compare the notes and tracker before sending Priya the
-    summary.
+    Open the Q3 budget notes or tracker before sending Priya the summary.
   strong_nudge_message: >
-    Before moving forward, review the vendor-services caveat and decide whether
-    the email should mark it as pending Marcus/Nexus confirmation.
+    Suggested options: ask what "may shift" means, open the budget tracker,
+    hold the send for Marcus, or send with the vendor-services line marked TBC.
   force_progress_message: >
     A new task has arrived after the Q3 budget work. The simulation is ready to
     move to the next scenario.
@@ -208,6 +207,8 @@ agent_response_contract:
     updated Nexus number in the files, and the vendor-services line should not
     be treated as final.
 metadata:
+  scenario_code: SCN-1-UR
+  naming_convention: Uncertainty Recognition
   scenario_folder: scenario-1
   finalized_source: Resources/Scenarios/[finalized] Scenario1_UncertaintyRecognition_Scored.pdf
   scoring_model: scenario1-uncertainty-finalized-v1

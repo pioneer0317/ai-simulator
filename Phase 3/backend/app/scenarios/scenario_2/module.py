@@ -152,9 +152,12 @@ class Scenario2Module:
     """Scenario 2 extension module for the finalized accountability case."""
 
     scenario_id = SCENARIO_ID
-    classifier_template_name = None
+    classifier_template_name = "scenario2_semantic_classifier.md"
     llm_classifier_version = "scenario2-semantic-llm-v1"
     fallback_classifier_version = "scenario2-semantic-rules-fallback-v1"
+    # Scenario 2 has 4 primary choices + 3 B-subchoices. The choices are clearly
+    # distinct (blame vs. correct vs. apologize vs. wait) so the default 0.55 floor
+    # from settings is fine.
 
     def classify_message(self, message: str) -> Scenario2Classification | None:
         return classify_message(message)
@@ -167,7 +170,32 @@ class Scenario2Module:
     def classification_from_llm_payload(
         self, payload: Any
     ) -> Scenario2Classification | None:
-        return None
+        if not getattr(payload, "classified", False):
+            return None
+        choice = getattr(payload, "choice", None)
+        label = getattr(payload, "label", None)
+        if not isinstance(choice, str) or not isinstance(label, str):
+            return None
+        # Map LLM-side conversational labels to None so the agent falls through
+        # to free-form generation for these (rather than committing to a
+        # deterministic scenario reply).
+        if choice in {"AMBIGUOUS", "NULL", "CONVERSATIONAL", "ESCALATE"}:
+            return None
+        if choice not in {"A", "B", "C", "D"}:
+            return None
+        subchoice = getattr(payload, "subchoice", None) if choice == "B" else None
+        matched_signals = getattr(payload, "matched_signals", [])
+        return Scenario2Classification(
+            choice=choice,
+            subchoice=subchoice if isinstance(subchoice, str) else None,
+            label=label,
+            terminal=bool(getattr(payload, "terminal", False)),
+            matched_signals=tuple(
+                signal for signal in matched_signals if isinstance(signal, str)
+            )
+            if isinstance(matched_signals, list)
+            else (),
+        )
 
     def score(self, events: list[SessionEvent]) -> DeterministicScoringResult | None:
         accountability_evidence: list[ScoreEvidence] = []

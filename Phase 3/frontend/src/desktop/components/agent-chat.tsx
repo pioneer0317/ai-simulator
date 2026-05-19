@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProgressionDecision } from '../../app/lib/simulatorApi';
+import { initialAprLocalChatState, tryAprScenarioScriptedReply, type AprLocalChatState } from '../aprScenarioLocalReplies';
 
 export type ChatMessage = {
   role: 'user' | 'agent' | 'loading';
@@ -7,6 +8,16 @@ export type ChatMessage = {
   variant?: 'normal' | 'nudge' | 'transition' | 'error';
   agentName?: string;
   agentTone?: 'assistant' | 'workspace' | 'product' | 'legal' | 'finance';
+  streaming?: boolean;
+};
+
+export type ChatAgentDescriptor = {
+  id: string;
+  name: string;
+  tone: NonNullable<ChatMessage['agentTone']>;
+  mentionTokens?: string[];
+  participatesInBroadcast?: boolean;
+  specialty?: string;
 };
 
 interface AgentChatProps {
@@ -19,6 +30,7 @@ interface AgentChatProps {
   onExpandChange?: (expanded: boolean) => void;
   initialMessage?: string;
   initialMessages?: ChatMessage[];
+  availableAgents?: ChatAgentDescriptor[];
   onOpenFilePicker?: () => void;
   uploadedFiles?: string[];
   onRemoveFile?: (index: number) => void;
@@ -26,10 +38,21 @@ interface AgentChatProps {
   onAgentTurn?: (
     message: string,
     referencedArtifactIds: string[],
-    metadata: Record<string, unknown>
+    metadata: Record<string, unknown>,
+    streamHandlers?: {
+      onChunk?: (text: string) => void;
+      onReplace?: (text: string) => void;
+    }
   ) => Promise<{ content: string | null; progression?: ProgressionDecision | null } | null>;
   onTransitionChange?: (inTransition: boolean) => void;
   shouldPulse?: boolean;
+  /**
+   * When true, this chat is driving the SCN-3-APR scenario and should fire
+   * `onTriggerHrPressureNotification` once after the participant's second
+   * user turn (parity with the prototype's social-pressure mechanic).
+   */
+  isAprScenario?: boolean;
+  onTriggerHrPressureNotification?: () => void;
 }
 
 const agentToneStyles = {
@@ -71,6 +94,67 @@ const initialsForAgent = (name?: string) => {
     .join('') || 'AI';
 };
 
+const normalizeMentionToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const primaryMentionToken = (agent: ChatAgentDescriptor) =>
+  `@${agent.mentionTokens?.[0] ?? agent.name.replace(/\s+/g, '')}`;
+
+function extractTargetAgents(message: string, agents: ChatAgentDescriptor[]) {
+  const matches = new Map<string, ChatAgentDescriptor>();
+  let cleaned = message;
+
+  for (const agent of agents) {
+    const aliases = Array.from(new Set([agent.name, ...(agent.mentionTokens ?? [])]));
+    for (const alias of aliases) {
+      const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(^|\\s)@${escapedAlias}(?=\\b)`, 'gi');
+      if (regex.test(cleaned)) {
+        matches.set(agent.id, agent);
+        cleaned = cleaned.replace(regex, '$1');
+      }
+    }
+  }
+
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  const directTargets = Array.from(matches.values());
+  if (directTargets.length > 0) {
+    return {
+      mode: 'direct' as const,
+      targets: directTargets,
+      cleanedMessage: cleaned || message.trim(),
+    };
+  }
+
+  return {
+    mode: 'broadcast' as const,
+    targets: agents.filter((agent) => agent.participatesInBroadcast !== false),
+    cleanedMessage: message.trim(),
+  };
+}
+
+function parseStructuredAgentResponse(content: string, targets: ChatAgentDescriptor[]) {
+  const blocks = new Map<string, string>();
+  const pattern = /^\[([^\]]+)\]\s*([\s\S]*?)(?=^\[[^\]]+\]\s*|\s*$)/gm;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content)) !== null) {
+    blocks.set(normalizeMentionToken(match[1]), match[2].trim());
+  }
+
+  return targets
+    .map((agent) => {
+      const block = blocks.get(normalizeMentionToken(agent.name));
+      if (!block) return null;
+      return {
+        role: 'agent' as const,
+        agentName: agent.name,
+        agentTone: agent.tone,
+        content: block,
+      };
+    })
+    .filter((value): value is ChatMessage => value !== null);
+}
+
 const AIIcon = ({ tone = 'assistant', label }: { tone?: ChatMessage['agentTone']; label?: string }) => {
   const styles = agentToneStyles[tone ?? 'assistant'];
 
@@ -107,6 +191,55 @@ const defaultSuggestions = [
   'Draft a caveat for Priya.',
 ];
 
+const COMPACT_CHAT_WIDTH = 500;
+const COMPACT_CHAT_HEIGHT = 680;
+const COMPACT_CHAT_MARGIN = 24;
+const COMPACT_CHAT_TOP_MARGIN = 56;
+
+const clampChatPosition = (position: { x: number; y: number }) => ({
+  x: Math.max(
+    COMPACT_CHAT_MARGIN,
+    Math.min(position.x, window.innerWidth - COMPACT_CHAT_WIDTH - COMPACT_CHAT_MARGIN)
+  ),
+  y: Math.max(
+    COMPACT_CHAT_TOP_MARGIN,
+    Math.min(position.y, window.innerHeight - COMPACT_CHAT_HEIGHT - COMPACT_CHAT_MARGIN)
+  ),
+});
+
+const suggestionsForContext = (title: string, messages: ChatMessage[]) => {
+  const context = `${title} ${messages.map((item) => item.content).join(' ')}`.toLowerCase();
+
+  if (context.includes('jordan mills') || context.includes('performance improvement plan')) {
+    return [
+      'Which evidence did you use for this recommendation?',
+      'Open Jordan Mills Q3 Review Package.',
+      'Does this account for approved medical leave?',
+      'Recalculate the metrics excluding leave.',
+    ];
+  }
+
+  if (context.includes('ahmed') || context.includes('case #48291')) {
+    return [
+      'What actually happened in the case record?',
+      'Compare the case note with the credit policy.',
+      'What must happen before Ahmed is told this is resolved?',
+      'Draft an update for Dana.',
+    ];
+  }
+
+  if (context.includes('productscope') || context.includes('legalguard') || context.includes('financetrack')) {
+    return [
+      'Where do the agents actually disagree?',
+      'Does LegalGuard block all regions or only EU?',
+      'What changes if we launch non-EU first?',
+      'Draft a conditional phased recommendation.',
+    ];
+  }
+
+  return defaultSuggestions;
+};
+
 export function AgentChat({
   id,
   title = 'AI Assistant',
@@ -117,6 +250,7 @@ export function AgentChat({
   onExpandChange,
   initialMessage,
   initialMessages,
+  availableAgents = [],
   onOpenFilePicker,
   uploadedFiles = [],
   onRemoveFile,
@@ -124,6 +258,8 @@ export function AgentChat({
   onAgentTurn,
   onTransitionChange,
   shouldPulse = false,
+  isAprScenario = false,
+  onTriggerHrPressureNotification,
 }: AgentChatProps) {
   const startingMessages = useMemo(
     () =>
@@ -132,33 +268,65 @@ export function AgentChat({
         : [{ role: 'agent' as const, content: initialMessage || 'Hello. I can help review the visible episode materials and draft options.' }],
     [initialMessage, initialMessages]
   );
+  const suggestedPrompts = useMemo(
+    () => suggestionsForContext(title, startingMessages),
+    [startingMessages, title]
+  );
   const [messages, setMessages] = useState<ChatMessage[]>(startingMessages);
   const [message, setMessage] = useState('');
   const [chatLocked, setChatLocked] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [position, setPosition] = useState({ x: window.innerWidth - 440, y: 60 });
+  const [position, setPosition] = useState(() => clampChatPosition({
+    x: window.innerWidth - COMPACT_CHAT_WIDTH - 40,
+    y: 60,
+  }));
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [hasClickedInitialMessage, setHasClickedInitialMessage] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // APR-only: count user turns so the Rachel Kim social-pressure DM fires
+  // exactly once after the participant's second pushback.
+  const aprUserTurnsRef = useRef(0);
+  const aprPressureFiredRef = useRef(false);
+  const aprLocalStateRef = useRef<AprLocalChatState>(initialAprLocalChatState());
+  const multiAgentEnabled = availableAgents.length > 1;
 
   useEffect(() => {
+    if (isAprScenario) {
+      aprLocalStateRef.current = initialAprLocalChatState();
+      aprUserTurnsRef.current = 0;
+      aprPressureFiredRef.current = false;
+    }
     setMessages(startingMessages);
     setChatLocked(false);
-  }, [startingMessages]);
+    setHasClickedInitialMessage(false);
+  }, [startingMessages, isAprScenario]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const handleResize = () => {
+      setPosition((current) => clampChatPosition(current));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       if (!isDragging) return;
-      setPosition({
+      setPosition(clampChatPosition({
         x: event.clientX - dragOffset.x,
         y: event.clientY - dragOffset.y,
-      });
+      }));
     };
     const handleMouseUp = () => setIsDragging(false);
 
@@ -188,20 +356,60 @@ export function AgentChat({
     if (!message.trim() && uploadedFiles.length === 0) return;
 
     const attachments = [...uploadedFiles];
-    const userMessage = attachments.length
-      ? message.trim()
-        ? `${message.trim()}\n\nAttached: ${attachments.join(', ')}`
+    const rawUserMessage = message.trim();
+    const displayUserMessage = attachments.length
+      ? rawUserMessage
+        ? `${rawUserMessage}\n\nAttached: ${attachments.join(', ')}`
         : `Attached: ${attachments.join(', ')}`
-      : message.trim();
+      : rawUserMessage;
+    const targetSelection = multiAgentEnabled ? extractTargetAgents(rawUserMessage, availableAgents) : null;
+    const targets = targetSelection?.targets ?? [];
+    const loadingMessages: ChatMessage[] = multiAgentEnabled
+      ? targets.map((agent) => ({
+          role: 'loading',
+          content: '',
+          agentName: agent.name,
+          agentTone: agent.tone,
+        }))
+      : [{ role: 'loading', content: '' }];
 
     setMessages((current) => [
       ...current,
-      { role: 'user', content: userMessage },
-      { role: 'loading', content: '' },
+      { role: 'user', content: displayUserMessage },
+      ...loadingMessages,
     ]);
     setMessage('');
     setShowSuggestions(false);
     onClearFiles?.();
+
+    // APR social-pressure trigger: after the participant's second user turn,
+    // fire the Rachel Kim Messages notification exactly once. This matches the
+    // prototype's `handleHrPressureNotification` behavior.
+    if (isAprScenario) {
+      aprUserTurnsRef.current += 1;
+      if (aprUserTurnsRef.current === 2 && !aprPressureFiredRef.current) {
+        aprPressureFiredRef.current = true;
+        onTriggerHrPressureNotification?.();
+      }
+    }
+
+    if (isAprScenario && !onAgentTurn) {
+      const scripted = tryAprScenarioScriptedReply(displayUserMessage, aprLocalStateRef.current);
+      aprLocalStateRef.current = scripted.nextState;
+      window.setTimeout(() => {
+        setMessages((current) => {
+          const withoutLoading = current.filter((item) => item.role !== 'loading');
+          return [...withoutLoading, { role: 'agent' as const, content: scripted.reply }];
+        });
+        if (scripted.scenarioComplete) {
+          setChatLocked(true);
+          window.setTimeout(() => {
+            onTransitionChange?.(true);
+          }, 3000);
+        }
+      }, 500);
+      return;
+    }
 
     if (!onAgentTurn) {
       setMessages((current) => [
@@ -216,20 +424,92 @@ export function AgentChat({
     }
 
     try {
-      const response = await onAgentTurn(userMessage, [], {
+      let streamedContent = '';
+      const applyStreamText = (text: string, replace = false) => {
+        streamedContent = replace ? text : `${streamedContent}${text}`;
+        setMessages((current) => {
+          const next = [...current];
+          const loadingIndex = next.findIndex((item) => item.role === 'loading');
+          if (loadingIndex !== -1) {
+            next.splice(loadingIndex, 1, {
+              role: 'agent',
+              content: streamedContent,
+              streaming: true,
+            });
+            return next;
+          }
+
+          for (let index = next.length - 1; index >= 0; index -= 1) {
+            const item = next[index];
+            if (item.role === 'agent' && item.streaming) {
+              next[index] = { ...item, content: streamedContent };
+              return next;
+            }
+          }
+
+          return [...next, { role: 'agent', content: streamedContent, streaming: true }];
+        });
+      };
+
+      const response = await onAgentTurn(displayUserMessage, [], {
         source: 'assistant_chat',
         attachment_count: attachments.length,
         attachments,
+        raw_user_message: rawUserMessage,
+        displayed_user_message: displayUserMessage,
+        interaction_mode: multiAgentEnabled ? targetSelection?.mode ?? 'broadcast' : 'single',
+        target_agents: targets.map((agent) => agent.name),
+        target_agent_ids: targets.map((agent) => agent.id),
+        cleaned_user_message: targetSelection?.cleanedMessage ?? rawUserMessage,
+      }, multiAgentEnabled ? undefined : {
+        onChunk: (text) => applyStreamText(text),
+        onReplace: (text) => applyStreamText(text, true),
       });
       setMessages((current) => {
         const withoutLoading = current.filter((item) => item.role !== 'loading');
-        const nextMessages = response?.content
-          ? [...withoutLoading, { role: 'agent' as const, content: response.content }]
-          : withoutLoading;
+        const nextMessages = [...withoutLoading];
+        const streamingIndex = nextMessages.findIndex(
+          (item) => item.role === 'agent' && item.streaming,
+        );
+
+        if (response?.content) {
+          if (multiAgentEnabled) {
+            const parsed = parseStructuredAgentResponse(response.content, targets);
+            if (parsed.length > 0) {
+              nextMessages.push(...parsed);
+            } else {
+              const fallbackAgent =
+                targetSelection?.mode === 'direct' && targets.length === 1
+                  ? targets[0]
+                  : availableAgents.find((agent) => agent.id === 'workspace') ?? targets[0];
+              nextMessages.push({
+                role: 'agent',
+                agentName: fallbackAgent?.name ?? 'AI Workspace',
+                agentTone: fallbackAgent?.tone ?? 'workspace',
+                content: response.content,
+              });
+            }
+          } else if (streamingIndex !== -1) {
+            nextMessages[streamingIndex] = {
+              ...nextMessages[streamingIndex],
+              content: response.content,
+              streaming: false,
+            };
+          } else {
+            nextMessages.push({ role: 'agent' as const, content: response.content });
+          }
+        } else if (streamingIndex !== -1) {
+          nextMessages[streamingIndex] = {
+            ...nextMessages[streamingIndex],
+            streaming: false,
+          };
+        }
 
         if (response?.progression?.message && response.progression.intervention_type !== 'none') {
           nextMessages.push({
             role: 'agent',
+            agentName: multiAgentEnabled ? 'AI Workspace' : undefined,
+            agentTone: multiAgentEnabled ? 'workspace' : undefined,
             content: response.progression.message,
             variant: response.progression.transition_required ? 'transition' : 'nudge',
           });
@@ -274,8 +554,8 @@ export function AgentChat({
     : {
         left: `${position.x}px`,
         top: `${position.y}px`,
-        width: '500px',
-        height: '680px',
+        width: `${COMPACT_CHAT_WIDTH}px`,
+        height: `${COMPACT_CHAT_HEIGHT}px`,
         zIndex,
       };
 
@@ -335,8 +615,11 @@ export function AgentChat({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`flex-1 space-y-4 overflow-y-auto p-4 ${isExpanded ? 'mx-auto w-full max-w-4xl py-8' : ''}`}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div
+            ref={messagesContainerRef}
+            className={`min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 ${isExpanded ? 'mx-auto w-full max-w-4xl py-8' : ''}`}
+          >
             {messages.map((item, index) => (
               <div
                 key={`${item.role}-${index}`}
@@ -402,15 +685,54 @@ export function AgentChat({
                 {item.role === 'user' && <UserAvatar />}
               </div>
             ))}
-            <div ref={messagesEndRef} />
           </div>
 
-          <div className={`border-t border-white/10 bg-black/10 p-4 backdrop-blur-sm ${isExpanded ? 'mx-auto w-full max-w-4xl' : ''}`}>
+          <div className={`shrink-0 border-t border-white/10 bg-black/10 p-4 backdrop-blur-sm ${isExpanded ? 'mx-auto w-full max-w-4xl' : ''}`}>
+            {multiAgentEnabled && (
+              <div className="mb-3 rounded-xl border border-cyan-200/25 bg-black/35 p-3 backdrop-blur-sm">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-white/65">
+                    Connected agents
+                  </div>
+                  <div className="text-[11px] text-white/55">
+                    No @ asks everyone
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {availableAgents.map((agent) => {
+                    const token = primaryMentionToken(agent);
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => {
+                          setMessage((current) => {
+                            const trimmed = current.trim();
+                            if (!trimmed) return `${token} `;
+                            if (current.includes(token)) return current;
+                            return `${current}${current.endsWith(' ') ? '' : ' '}${token} `;
+                          });
+                        }}
+                        className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-white transition hover:border-white/30 hover:bg-white/10"
+                        title={agent.specialty}
+                      >
+                        <span className="mr-1 text-white/65">{token}</span>
+                        {agent.name}
+                        {agent.participatesInBroadcast === false && (
+                          <span className="ml-1 text-white/45">coordination</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {showSuggestions && (
               <div className="mb-3 rounded-xl border border-amber-200/30 bg-black/40 p-3 backdrop-blur-sm">
                 <div className="mb-2 text-xs font-semibold text-white/70">Suggested prompts:</div>
                 <div className="space-y-2">
-                  {defaultSuggestions.map((suggestion) => (
+                  {suggestedPrompts.map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => {
@@ -479,7 +801,11 @@ export function AgentChat({
               </button>
             </div>
             <p className="mt-2 text-center text-xs text-white/60">
-              {chatLocked ? 'The scenario has moved into transition.' : 'Press Enter to send • Type ? for help'}
+              {chatLocked
+                ? 'The scenario has moved into transition.'
+                : multiAgentEnabled
+                  ? 'Press Enter to send • Type ? for help • Use @ProductScope, @LegalGuard, or @FinanceTrack'
+                  : 'Press Enter to send • Type ? for help'}
             </p>
           </div>
         </div>

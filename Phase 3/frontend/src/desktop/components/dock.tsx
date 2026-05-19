@@ -3,6 +3,9 @@ import { useState, useRef } from 'react';
 interface DockProps {
   onOpenApp: (appName: string) => void;
   windows: Array<{ id: string; app: string; isMinimized: boolean }>;
+  unreadEmailCount?: number;
+  unreadMessagesCount?: number;
+  highlightCalendar?: boolean;
 }
 
 const FinderIcon = () => (
@@ -173,10 +176,35 @@ const AgentIcon = () => (
   </svg>
 );
 
+const HRPolicyIcon = () => (
+  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" rx="22" fill="url(#hr-grad)" />
+    {/* Clipboard */}
+    <rect x="30" y="20" width="40" height="60" rx="3" fill="white" />
+    {/* Clip at top */}
+    <rect x="42" y="15" width="16" height="8" rx="2" fill="#94A3B8" />
+    {/* Document lines */}
+    <rect x="38" y="32" width="24" height="3" rx="1.5" fill="#10B981" opacity="0.6" />
+    <rect x="38" y="40" width="24" height="3" rx="1.5" fill="#10B981" opacity="0.6" />
+    <rect x="38" y="48" width="20" height="3" rx="1.5" fill="#10B981" opacity="0.6" />
+    <rect x="38" y="56" width="22" height="3" rx="1.5" fill="#10B981" opacity="0.6" />
+    {/* Checkmark */}
+    <circle cx="50" cy="68" r="8" fill="#10B981" />
+    <path d="M46 68L48.5 70.5L54 65" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <defs>
+      <linearGradient id="hr-grad" x1="0" y1="0" x2="0" y2="100" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#86EFAC" />
+        <stop offset="1" stopColor="#10B981" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+
 const dockApps = [
   { name: 'finder', icon: FinderIcon, label: 'Finder' },
   { name: 'mail', icon: MailIcon, label: 'Mail' },
   { name: 'calendar', icon: CalendarIcon, label: 'Calendar' },
+  { name: 'hr policy center', icon: HRPolicyIcon, label: 'HR Policy Center' },
   { name: 'music', icon: MusicIcon, label: 'Music' },
   { name: 'photos', icon: PhotosIcon, label: 'Photos' },
   { name: 'messages', icon: MessagesIcon, label: 'Messages' },
@@ -184,7 +212,13 @@ const dockApps = [
   { name: 'system preferences', icon: SettingsIcon, label: 'System Preferences' },
 ];
 
-export function Dock({ onOpenApp, windows }: DockProps) {
+export function Dock({
+  onOpenApp,
+  windows,
+  unreadEmailCount = 0,
+  unreadMessagesCount = 0,
+  highlightCalendar = false,
+}: DockProps) {
   const [dockScale, setDockScale] = useState(1);
 
   const hasRunningWindow = (appName: string) => {
@@ -205,9 +239,67 @@ export function Dock({ onOpenApp, windows }: DockProps) {
         {dockApps.map((app) => {
           const Icon = app.icon;
           const isRunning = hasRunningWindow(app.name);
+          const hasUnreadMail = app.name === 'mail' && unreadEmailCount > 0;
+          const hasUnreadMessages = app.name === 'messages' && unreadMessagesCount > 0;
+          const hasCalendarHighlight = app.name === 'calendar' && highlightCalendar;
 
           return (
             <div key={app.name} className="relative group flex flex-col items-center">
+              {hasCalendarHighlight && (
+                <>
+                  <div
+                    className="pointer-events-none absolute -inset-3 rounded-3xl"
+                    style={{
+                      background:
+                        'radial-gradient(circle, rgba(245, 158, 11, 0.7) 0%, rgba(245, 158, 11, 0.32) 45%, rgba(245, 158, 11, 0) 72%)',
+                      filter: 'blur(10px)',
+                      animation: 'pulse-middle 2s ease-in-out infinite',
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-amber-300/80"
+                    style={{
+                      animation: 'pulse-inner 1.5s ease-in-out infinite',
+                    }}
+                  />
+                </>
+              )}
+              {hasUnreadMail && (
+                <>
+                  <div
+                    className="pointer-events-none absolute -inset-3 rounded-3xl"
+                    style={{
+                      background: 'radial-gradient(circle, rgba(239, 68, 68, 0.65) 0%, rgba(239, 68, 68, 0.28) 45%, rgba(239, 68, 68, 0) 72%)',
+                      filter: 'blur(10px)',
+                      animation: 'pulse-middle 2s ease-in-out infinite',
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-red-300/80"
+                    style={{
+                      animation: 'pulse-inner 1.5s ease-in-out infinite',
+                    }}
+                  />
+                </>
+              )}
+              {hasUnreadMessages && (
+                <>
+                  <div
+                    className="pointer-events-none absolute -inset-3 rounded-3xl"
+                    style={{
+                      background: 'radial-gradient(circle, rgba(239, 68, 68, 0.65) 0%, rgba(239, 68, 68, 0.28) 45%, rgba(239, 68, 68, 0) 72%)',
+                      filter: 'blur(10px)',
+                      animation: 'pulse-middle 2s ease-in-out infinite',
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-red-300/80"
+                    style={{
+                      animation: 'pulse-inner 1.5s ease-in-out infinite',
+                    }}
+                  />
+                </>
+              )}
               <button
                 onClick={() => onOpenApp(app.name)}
                 className="w-14 h-14 rounded-2xl flex items-center justify-center hover:scale-105 transition-transform duration-150 bg-transparent border-none outline-none focus:outline-none"
@@ -217,6 +309,16 @@ export function Dock({ onOpenApp, windows }: DockProps) {
               </button>
               {isRunning && (
                 <div className="absolute -bottom-1 w-1 h-1 rounded-full bg-white shadow-sm" />
+              )}
+              {hasUnreadMail && (
+                <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 shadow-lg shadow-red-500/40">
+                  <span className="text-xs font-bold leading-none text-white">{unreadEmailCount}</span>
+                </div>
+              )}
+              {hasUnreadMessages && (
+                <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 shadow-lg shadow-red-500/40">
+                  <span className="text-xs font-bold leading-none text-white">{unreadMessagesCount}</span>
+                </div>
               )}
               {/* Tooltip */}
               <div className="absolute bottom-[calc(100%+10px)] px-3 py-1.5 bg-gray-900/90 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg border border-white/10">

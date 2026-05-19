@@ -37,8 +37,13 @@ class Settings(BaseSettings):
     prompt_template_dir: Path = Field(
         default_factory=lambda: _project_root() / "configs" / "prompts"
     )
-    llm_grader_enabled: bool = False
-    llm_classifier_enabled: bool = False
+    llm_grader_enabled: bool = True
+    # Default to True so paraphrased participant messages are mapped to scenario
+    # choices by meaning whenever the rest of the LLM stack is configured. The
+    # classifier always falls back to scenario-owned deterministic rules when
+    # the provider is "disabled" or unreachable, so flipping the default does
+    # not introduce a hard runtime dependency on an external LLM.
+    llm_classifier_enabled: bool = True
     llm_agent_enabled: bool = False
     llm_provider: str = "disabled"
     llm_model: str = "provider-model"
@@ -48,6 +53,15 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_base_url: str | None = None
     llm_timeout_seconds: float = 30.0
+    # Per-role generation temperatures. Classifier/grader return JSON and should
+    # be fully deterministic; the participant-facing agent benefits from a tiny
+    # amount of variation while still staying on-script for known categories.
+    llm_classifier_temperature: float = 0.0
+    llm_grader_temperature: float = 0.0
+    llm_agent_temperature: float = 0.2
+    # Global classifier confidence floor; individual scenario modules may
+    # override via ScenarioModule.min_confidence for high-cardinality scenarios.
+    llm_classifier_min_confidence: float = 0.55
     assistant_fallback_enabled: bool = True
 
     @field_validator("frontend_origins", mode="before")

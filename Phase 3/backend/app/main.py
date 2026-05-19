@@ -45,17 +45,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings,
         enabled=settings.llm_agent_enabled,
         model=settings.llm_agent_model or settings.llm_model,
+        default_temperature=settings.llm_agent_temperature,
     )
     grader_llm_client = _build_llm_client(
         settings,
         enabled=settings.llm_grader_enabled,
         model=settings.llm_grader_model or settings.llm_model,
+        default_temperature=settings.llm_grader_temperature,
     )
     classifier_llm_client = _build_llm_client(
         settings,
         enabled=settings.llm_classifier_enabled,
         model=settings.llm_classifier_model or settings.llm_model,
+        default_temperature=settings.llm_classifier_temperature,
     )
+
+    # Share one renderer across all three LLM roles so its mtime-keyed cache
+    # is reused. Each agent turn renders multiple prompts; a per-service
+    # renderer would discard the cache every call.
+    prompt_renderer = PromptTemplateRenderer(settings.prompt_template_dir)
 
     if settings.storage_backend == "mysql":
         if not settings.database_url:
@@ -73,20 +81,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         semantic_classifier=LLMSemanticClassifier(
             enabled=settings.llm_classifier_enabled,
             client=classifier_llm_client,
-            prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
+            prompt_renderer=prompt_renderer,
             provider_name=settings.llm_provider,
+            min_confidence=settings.llm_classifier_min_confidence,
+            temperature=settings.llm_classifier_temperature,
         ),
         llm_grader=LLMGrader(
             enabled=settings.llm_grader_enabled,
             client=grader_llm_client,
-            prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
+            prompt_renderer=prompt_renderer,
             provider_name=settings.llm_provider,
+            temperature=settings.llm_grader_temperature,
         ),
         agent_responder=LLMAgentResponder(
             enabled=settings.llm_agent_enabled,
             client=agent_llm_client,
-            prompt_renderer=PromptTemplateRenderer(settings.prompt_template_dir),
+            prompt_renderer=prompt_renderer,
             provider_name=settings.llm_provider,
+            temperature=settings.llm_agent_temperature,
         ),
         fallback_agent_responder=ScenarioFallbackAgentResponder(),
         assistant_fallback_enabled=settings.assistant_fallback_enabled,
@@ -102,7 +114,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _build_llm_client(settings: Settings, *, enabled: bool, model: str):
+def _build_llm_client(
+    settings: Settings,
+    *,
+    enabled: bool,
+    model: str,
+    default_temperature: float = 0.2,
+):
     if not enabled:
         return DisabledLLMClient()
     if settings.llm_provider == "fixture":
@@ -113,6 +131,7 @@ def _build_llm_client(settings: Settings, *, enabled: bool, model: str):
             model=model,
             base_url=settings.llm_base_url or "",
             timeout_seconds=settings.llm_timeout_seconds,
+            default_temperature=default_temperature,
         )
     if settings.llm_provider == "gemini":
         return GeminiLLMClient(
@@ -120,6 +139,7 @@ def _build_llm_client(settings: Settings, *, enabled: bool, model: str):
             model=model,
             base_url=settings.llm_base_url or "https://generativelanguage.googleapis.com/v1beta",
             timeout_seconds=settings.llm_timeout_seconds,
+            default_temperature=default_temperature,
         )
     return DisabledLLMClient()
 

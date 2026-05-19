@@ -12,7 +12,8 @@ export function Layout() {
   const location = useLocation();
   
   const currentStepIndex = steps.findIndex((step) => step.path === location.pathname);
-  const showStepper = currentStepIndex !== -1 && location.pathname !== '/simulation';
+  const showStepper =
+    currentStepIndex !== -1 && location.pathname !== '/simulation' && location.pathname !== '/';
 
   return (
     <div className="min-h-screen flex flex-col">

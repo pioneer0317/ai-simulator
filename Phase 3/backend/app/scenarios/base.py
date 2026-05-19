@@ -26,6 +26,11 @@ class ScenarioModule(Protocol):
     classifier_template_name: str | None
     llm_classifier_version: str
     fallback_classifier_version: str
+    # Optional per-scenario confidence floor for the LLM classifier. When unset,
+    # the LLMSemanticClassifier uses its global default (settings.llm_classifier_min_confidence).
+    # Scenarios with many close-together labels (e.g. SCN-3-APR with 14+ choices)
+    # should raise this to avoid confidently-wrong category picks.
+    min_confidence: float
 
     def classify_message(self, message: str) -> ScenarioClassification | None:
         """Classify participant wording with scenario-owned deterministic rules."""

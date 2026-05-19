@@ -369,9 +369,13 @@ export function AnalyticsPageEnhanced() {
               <Target className="h-7 w-7 text-cyan-400" />
               <h3 className="font-bold text-white text-lg">Calibrated Trust Score</h3>
             </div>
-            <p className="text-5xl font-bold text-white mb-2">{calibratedTrustScore}%</p>
+            <p className="text-5xl font-bold text-white mb-2">
+              {totalActions === 0 ? '—' : `${calibratedTrustScore}%`}
+            </p>
             <p className="text-slate-300 text-sm">
-              Based on behavioral patterns
+              {totalActions === 0
+                ? 'Awaiting participant interactions'
+                : 'Based on behavioral patterns'}
             </p>
           </Card>
 
@@ -621,8 +625,13 @@ export function AnalyticsPageEnhanced() {
           </div>
         </Card>
 
-        {/* Context Influence Insights */}
-        {contextInsights && (
+        {/* Context Influence Insights — only render when stress-context telemetry actually fires.
+            Phase 3 sessions do not populate contextSettings, so without this guard the card would
+            always display three "0" values and look broken. */}
+        {contextInsights &&
+          (contextInsights.highPressureCompliance > 0 ||
+            contextInsights.authorityInfluence > 0 ||
+            contextInsights.lowTransparencyTrust > 0) && (
           <Card className="p-8 mb-12 bg-gradient-to-r from-purple-900/40 to-pink-900/40 border-4 border-purple-600 shadow-2xl">
             <h3 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
               <div className="text-4xl">🧠</div>
@@ -871,10 +880,16 @@ export function AnalyticsPageEnhanced() {
           <h3 className="text-2xl font-bold text-white mb-6">🔬 Human User Behavioral Findings</h3>
           <div className="space-y-4 text-lg">
             <p className="text-white leading-relaxed">
-              <span className="font-bold text-cyan-300">Calibrated Trust Score: {calibratedTrustScore}%</span> -
-              {calibratedTrustScore >= 75 ? ' Excellent trust calibration. You demonstrate strong critical thinking and verification habits.' :
-               calibratedTrustScore >= 50 ? ' Moderate trust calibration. You show some verification behavior but could improve oversight.' :
-               ' Poor trust calibration. You tend to over-trust AI recommendations without adequate verification.'}
+              <span className="font-bold text-cyan-300">
+                Calibrated Trust Score: {totalActions === 0 ? '—' : `${calibratedTrustScore}%`}
+              </span> -
+              {totalActions === 0
+                ? ' No participant interactions captured yet. The trust calibration score will appear once the session has classifiable activity.'
+                : calibratedTrustScore >= 75
+                  ? ' Excellent trust calibration. You demonstrate strong critical thinking and verification habits.'
+                  : calibratedTrustScore >= 50
+                    ? ' Moderate trust calibration. You show some verification behavior but could improve oversight.'
+                    : ' Poor trust calibration. You tend to over-trust AI recommendations without adequate verification.'}
             </p>
             <p className="text-white leading-relaxed">
               <span className="font-bold text-cyan-300">Control vs. Deference Ratio:</span> {humanControlActions}:{aiDeferralActions} -

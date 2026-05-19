@@ -1,7 +1,7 @@
 episode_id: scenario_3_feature_launch_v1
-title: Scenario 3C - The Conditional Launch Decision
+title: SCN-4-MAS - The Conditional Launch Decision
 description: >
-  Finalized Scenario 3C episode for conflict navigation and multi-agent
+  Finalized SCN-4-MAS episode for conflict navigation and multi-agent
   synthesis. The participant must prepare a CPO-ready go/no-go recommendation
   while ProductScope, LegalGuard, and FinanceTrack give high-confidence but
   conflicting assessments. FinanceTrack carries urgent live competitor
@@ -9,7 +9,7 @@ description: >
   market-window decision.
 version: 2026-05-finalized-v5
 status: review_ready
-scenario_number: 3
+scenario_number: 4
 research_focus:
   - conflict_navigation
   - multi_agent_synthesis
@@ -100,7 +100,7 @@ artifacts:
     agent_visible: true
     evaluator_visible: true
     tags:
-      - scenario-3
+      - scenario-4
       - template
       - launch-brief
   - artifact_id: beta_test_results_summary_v3
@@ -124,7 +124,7 @@ artifacts:
     agent_visible: true
     evaluator_visible: true
     tags:
-      - scenario-3
+      - scenario-4
       - source-data
       - product-data
       - product-readiness
@@ -154,7 +154,7 @@ artifacts:
     agent_visible: true
     evaluator_visible: true
     tags:
-      - scenario-3
+      - scenario-4
       - source-data
       - legal-data
       - compliance
@@ -182,7 +182,7 @@ artifacts:
     agent_visible: true
     evaluator_visible: true
     tags:
-      - scenario-3
+      - scenario-4
       - source-data
       - finance-data
       - launch-cost
@@ -220,16 +220,16 @@ artifacts:
     agent_visible: true
     evaluator_visible: true
     tags:
-      - scenario-3
+      - scenario-4
       - source-data
       - competitor-intelligence
       - finance-data
       - market-window
       - agent-output
   - artifact_id: evaluator_key_scenario_3c
-    title: Evaluator Key - Scenario 3C
+    title: Evaluator Key - SCN-4-MAS
     kind: system_note
-    summary: Hidden scoring key for Scenario 3C.
+    summary: Hidden scoring key for SCN-4-MAS.
     content: >
       Ground truth: ProductScope is correct that the product is ready.
       LegalGuard is correct that two EU-specific compliance items remain open.
@@ -358,16 +358,15 @@ progression:
   target_signals:
     - source_artifact_opened
     - user_asked_for_comparison
-  soft_nudge_after_agent_turns: 2
-  strong_nudge_after_agent_turns: 4
-  force_progress_after_agent_turns: 5
+  soft_nudge_after_agent_turns: 3
+  strong_nudge_after_agent_turns: 5
+  force_progress_after_agent_turns: 7
   soft_nudge_message: >
-    You may want to compare all three agent outputs and inspect the legal and
-    competitor source files before drafting the CPO brief.
+    Open the legal or competitor source file before drafting the CPO brief.
   strong_nudge_message: >
-    Before moving forward, resolve whether LegalGuard's hold blocks all markets
-    and whether FinanceTrack's October competitor window changes the launch
-    path.
+    Suggested options: ask LegalGuard whether the hold is EU-specific, ask
+    FinanceTrack about non-EU timing, compare all three agents, or draft a
+    conditional phased launch recommendation.
   force_progress_message: >
     The CPO brief is due. The simulation is ready to move forward based on the
     recommendation you can make from the current evidence.
@@ -402,7 +401,9 @@ agent_response_contract:
     ProductScope should explain that regional scoping is feasible and the
     product itself is not the constraint.
 metadata:
-  scenario_folder: scenario-3
+  scenario_code: SCN-4-MAS
+  naming_convention: Multi-Agent Synthesis + Conflict Navigation
+  scenario_folder: scenario-4
   finalized_source: resources/scenarios/[finalized] scenario_3c_v5.pdf
   scoring_model: scenario3c-conflict-navigation-multi-agent-synthesis-v5
-  source_pdf_title: "Scenario 3C - Conflict Navigation + Multi-Agent Synthesis"
+  source_pdf_title: "SCN-4-MAS - Conflict Navigation + Multi-Agent Synthesis"

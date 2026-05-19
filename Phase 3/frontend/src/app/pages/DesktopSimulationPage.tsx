@@ -6,7 +6,7 @@ import {
   appendSimulatorEvent,
   clearStoredSimulatorSession,
   completeSimulatorSession,
-  generateAgentTurn,
+  generateAgentTurnStream,
   getSimulatorSession,
   getStoredParticipantEpisode,
   getStoredSimulatorSessionId,
@@ -23,9 +23,10 @@ import {
 const SCENARIO_BUTTON_COUNT = 4;
 
 const KNOWN_SCENARIO_MAP: Record<number, { episodeId: string; title: string }> = {
-  1: { episodeId: 'q3_budget_summary_v1', title: 'Q3 Budget Summary for Priya' },
-  2: { episodeId: 'scenario_2_case_note_v1', title: 'Accountability - The Case Note' },
-  3: { episodeId: 'scenario_3_feature_launch_v1', title: 'Scenario 3C - The Conditional Launch Decision' },
+  1: { episodeId: 'q3_budget_summary_v1', title: 'SCN-1-UR - Q3 Budget Summary for Priya' },
+  2: { episodeId: 'scenario_2_case_note_v1', title: 'SCN-2-ACC - The Case Note' },
+  3: { episodeId: 'scenario_3_apr_performance_review_v1', title: 'SCN-3-APR - The Performance Review Dilemma' },
+  4: { episodeId: 'scenario_3_feature_launch_v1', title: 'SCN-4-MAS - The Conditional Launch Decision' },
 };
 
 export function DesktopSimulationPage() {
@@ -154,25 +155,6 @@ export function DesktopSimulationPage() {
     }).catch((error) => {
       console.warn(`Unable to record ${eventType}`, error);
     });
-  }, []);
-
-  const handleAgentTurn = useCallback(async (
-    message: string,
-    referencedArtifactIds: string[],
-    metadata: Record<string, unknown>
-  ): Promise<{ content: string | null; progression?: ProgressionDecision | null } | null> => {
-    const sessionId = getStoredSimulatorSessionId();
-    if (!sessionId) return null;
-
-    const response = await generateAgentTurn(sessionId, {
-      message,
-      referenced_artifact_ids: referencedArtifactIds,
-      metadata,
-    });
-    return {
-      content: response.agent_event?.content ?? response.error ?? null,
-      progression: response.progression ?? null,
-    };
   }, []);
 
   const handleComplete = async () => {
@@ -321,6 +303,32 @@ export function DesktopSimulationPage() {
       setIsJumpingToScenario(false);
     }
   }, [endScenario, isJumpingToScenario, participantEpisode?.episode_id, startScenario]);
+
+  // The backend signals "this scenario is over" via progression.transition_required.
+  // The desktop shows a manual "Go to next scenario" overlay instead of auto-advancing.
+  const handleAgentTurn = useCallback(async (
+    message: string,
+    referencedArtifactIds: string[],
+    metadata: Record<string, unknown>,
+    streamHandlers?: {
+      onChunk?: (text: string) => void;
+      onReplace?: (text: string) => void;
+    }
+  ): Promise<{ content: string | null; progression?: ProgressionDecision | null } | null> => {
+    const sessionId = getStoredSimulatorSessionId();
+    if (!sessionId) return null;
+
+    const response = await generateAgentTurnStream(sessionId, {
+      message,
+      referenced_artifact_ids: referencedArtifactIds,
+      metadata,
+    }, streamHandlers);
+
+    return {
+      content: response.agent_event?.content ?? response.error ?? null,
+      progression: response.progression ?? null,
+    };
+  }, []);
 
   if (!participantEpisode) {
     return (

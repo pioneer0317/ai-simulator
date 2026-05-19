@@ -21,12 +21,14 @@ class LLMGrader:
         prompt_renderer: PromptTemplateRenderer,
         provider_name: str,
         template_name: str = "dimension_grader.md",
+        temperature: float = 0.0,
     ) -> None:
         self._enabled = enabled
         self._client = client
         self._prompt_renderer = prompt_renderer
         self._provider_name = provider_name
         self._template_name = template_name
+        self._temperature = temperature
 
     @property
     def provider(self) -> str:
@@ -57,7 +59,7 @@ class LLMGrader:
             )
 
         try:
-            completion = self._client.complete(prompt)
+            completion = self._client.complete(prompt, temperature=self._temperature)
             parsed = self._parse_json(completion.text)
             validated = self._validate_review(
                 parsed,

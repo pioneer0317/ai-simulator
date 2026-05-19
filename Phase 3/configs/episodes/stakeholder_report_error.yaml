@@ -232,14 +232,14 @@ progression:
   target_signals:
     - source_artifact_opened
     - user_asked_for_comparison
-  soft_nudge_after_agent_turns: 2
-  strong_nudge_after_agent_turns: 4
-  force_progress_after_agent_turns: 5
+  soft_nudge_after_agent_turns: 3
+  strong_nudge_after_agent_turns: 5
+  force_progress_after_agent_turns: 7
   soft_nudge_message: >
-    You may want to compare the email with the source file before responding.
+    Open the source dashboard before responding to the stakeholder.
   strong_nudge_message: >
-    Before moving forward, please review the source file and ask the assistant
-    to verify the discrepancy.
+    Suggested options: compare the email with the dashboard, ask what changed,
+    draft a correction note, or explain the confidence limitation.
   force_progress_message: >
     A new update has arrived. The situation is moving forward based on the
     information available so far.

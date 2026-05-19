@@ -136,7 +136,7 @@ class Scenario3Module:
     """Scenario 3C extension module for conflict navigation and synthesis."""
 
     scenario_id = SCENARIO_ID
-    classifier_template_name = None
+    classifier_template_name = "scenario3_semantic_classifier.md"
     llm_classifier_version = "scenario3c-semantic-llm-v1"
     fallback_classifier_version = "scenario3c-semantic-rules-fallback-v1"
 
@@ -151,7 +151,32 @@ class Scenario3Module:
     def classification_from_llm_payload(
         self, payload: Any
     ) -> Scenario3Classification | None:
-        return None
+        if not getattr(payload, "classified", False):
+            return None
+        choice = getattr(payload, "choice", None)
+        label = getattr(payload, "label", None)
+        if not isinstance(choice, str) or not isinstance(label, str):
+            return None
+        # Conversational / non-decision labels yield None so the agent falls
+        # through to LLM generation instead of forcing a deterministic reply.
+        if choice in {"AMBIGUOUS", "NULL", "CONVERSATIONAL", "ESCALATE"}:
+            return None
+        if choice not in {"A", "B", "C", "D"}:
+            return None
+        matched_signals = getattr(payload, "matched_signals", [])
+        # C is investigative and never terminal; A/B/D are terminal commitments.
+        terminal = bool(getattr(payload, "terminal", False)) and choice != "C"
+        return Scenario3Classification(
+            choice=choice,
+            subchoice=None,
+            label=label,
+            terminal=terminal,
+            matched_signals=tuple(
+                signal for signal in matched_signals if isinstance(signal, str)
+            )
+            if isinstance(matched_signals, list)
+            else (),
+        )
 
     def score(self, events: list[SessionEvent]) -> DeterministicScoringResult | None:
         classified_event_ids: set[str] = set()
